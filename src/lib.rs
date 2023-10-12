@@ -1,5 +1,8 @@
 #![no_std]
 
+extern crate bitfield;
+extern crate crc;
+
 use bitfield::bitfield;
 use buffer::CircularBuffer;
 use crc::{Crc, CRC_8_DVB_S2};

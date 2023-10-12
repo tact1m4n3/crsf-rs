@@ -1,3 +1,5 @@
+extern crate crsf;
+
 use std::{env, io, time::Duration};
 
 use crsf::CrsfPacketParser;
