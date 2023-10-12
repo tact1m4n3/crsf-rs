@@ -1,0 +1,15 @@
+[package]
+name = "crsf"
+version = "0.1.0"
+authors = ["Dicu Tudor <tudor@dicu.org>"]
+license = "MIT"
+description = "This crate provides a #[no_std] parser for the crossfire protocol."
+repository = "https://github.com/tact1m4n3/crsf-rs"
+# documentation = ""
+
+[dependencies]
+bitfield = "0.14"
+crc = "3.0"
+
+[dev-dependencies]
+serialport = "4.2.2"
