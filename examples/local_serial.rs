@@ -20,8 +20,8 @@ fn main() {
                     parser.push_bytes(&buf[..n]);
                     while let Some(packet) = parser.next_packet() {
                         match packet {
-                            Packet::LinkStatistics(link_stats) => {
-                                println!("{:?}", link_stats);
+                            Packet::LinkStatistics(link_statistics) => {
+                                println!("{:?}", link_statistics);
                             }
                             Packet::RcChannelsPacked(raw_channels) => {
                                 println!("{:?}", raw_channels);

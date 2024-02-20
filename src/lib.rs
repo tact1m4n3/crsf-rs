@@ -228,7 +228,7 @@ bitfield! {
 }
 
 #[derive(Debug, Clone)]
-pub struct RcChannelsPacked(pub [u16; 16]);
+pub struct RcChannelsPacked([u16; 16]);
 
 impl RcChannelsPacked {
     pub const CHANNEL_VALUE_MIN: u16 = 172;
@@ -290,8 +290,9 @@ impl ChannelMapper for DefaultChannelsMapper {
     }
 }
 
+#[derive(Clone)]
 pub struct RcChannelsMapped<M: ChannelMapper> {
-    pub channels: [i32; 16],
+    channels: [i32; 16],
     _phantom: PhantomData<M>,
 }
 
@@ -323,7 +324,7 @@ impl<M: ChannelMapper> RcChannelsMapped<M> {
 
 impl<M: ChannelMapper> core::fmt::Debug for RcChannelsMapped<M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("RcChannelsMapped").field("channels", &self.channels).finish()
+        f.debug_tuple("RcChannelsMapped").field(&self.channels).finish()
     }
 }
 
