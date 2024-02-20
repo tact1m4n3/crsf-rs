@@ -32,7 +32,7 @@ impl<const C: usize> CircularBuffer<C> {
     }
 
     pub fn pop_front(&mut self) -> Option<u8> {
-        if self.len <= 0 {
+        if self.len == 0 {
             return None;
         }
 

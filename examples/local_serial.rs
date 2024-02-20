@@ -2,7 +2,7 @@ extern crate crsf;
 
 use std::{env, io, time::Duration};
 
-use crsf::CrsfPacketParser;
+use crsf::{CrsfPacketParser, DefaultChannelsMapper, Packet, RcChannelsMapped};
 
 fn main() {
     let path = env::args().nth(1).expect("no serial port supplied");
@@ -19,7 +19,17 @@ fn main() {
                 if n > 0 {
                     parser.push_bytes(&buf[..n]);
                     while let Some(packet) = parser.next_packet() {
-                        println!("{:?}", packet);
+                        match packet {
+                            Packet::LinkStatistics(link_stats) => {
+                                println!("{:?}", link_stats);
+                            }
+                            Packet::RcChannelsPacked(raw_channels) => {
+                                println!("{:?}", raw_channels);
+                                let mapped_channels: RcChannelsMapped<DefaultChannelsMapper> =
+                                    RcChannelsMapped::new(raw_channels);
+                                println!("{:?}", mapped_channels);
+                            }
+                        }
                     }
                 }
             }

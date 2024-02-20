@@ -3,6 +3,8 @@
 extern crate bitfield;
 extern crate crc;
 
+use core::marker::PhantomData;
+
 use bitfield::bitfield;
 use buffer::CircularBuffer;
 use crc::{Crc, CRC_8_DVB_S2};
@@ -136,7 +138,7 @@ impl PacketType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Packet {
     LinkStatistics(LinkStatistics),
     RcChannelsPacked(RcChannelsPacked),
@@ -175,7 +177,7 @@ impl Packet {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct LinkStatistics {
     pub uplink_rssi: i16,
     pub uplink_lq: u8,
@@ -225,7 +227,7 @@ bitfield! {
     ch15, _: 175, 165;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct RcChannelsPacked(pub [u16; 16]);
 
 impl RcChannelsPacked {
@@ -256,5 +258,85 @@ impl RcChannelsPacked {
             u16::from_le(channels_raw.ch14()),
             u16::from_le(channels_raw.ch15()),
         ])
+    }
+}
+
+impl core::ops::Deref for RcChannelsPacked {
+    type Target = [u16; 16];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for RcChannelsPacked {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub trait ChannelMapper {
+    fn map(val: u16) -> i32;
+}
+
+pub struct DefaultChannelsMapper;
+
+impl ChannelMapper for DefaultChannelsMapper {
+    #[rustfmt::skip]
+    fn map(val: u16) -> i32 {
+        1000
+            + (val.saturating_sub(RcChannelsPacked::CHANNEL_VALUE_1000) as i32 * (2000 - 1000) * 2
+            / (RcChannelsPacked::CHANNEL_VALUE_2000 - RcChannelsPacked::CHANNEL_VALUE_1000) as i32 + 1) / 2
+    }
+}
+
+pub struct RcChannelsMapped<M: ChannelMapper> {
+    pub channels: [i32; 16],
+    _phantom: PhantomData<M>,
+}
+
+impl<M: ChannelMapper> RcChannelsMapped<M> {
+    pub fn new(channels: RcChannelsPacked) -> Self {
+        Self {
+            channels: [
+                M::map(channels.0[0]),
+                M::map(channels.0[1]),
+                M::map(channels.0[2]),
+                M::map(channels.0[3]),
+                M::map(channels.0[4]),
+                M::map(channels.0[5]),
+                M::map(channels.0[6]),
+                M::map(channels.0[7]),
+                M::map(channels.0[8]),
+                M::map(channels.0[9]),
+                M::map(channels.0[10]),
+                M::map(channels.0[11]),
+                M::map(channels.0[12]),
+                M::map(channels.0[13]),
+                M::map(channels.0[14]),
+                M::map(channels.0[15]),
+            ],
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<M: ChannelMapper> core::fmt::Debug for RcChannelsMapped<M> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RcChannelsMapped").field("channels", &self.channels).finish()
+    }
+}
+
+impl<M: ChannelMapper> core::ops::Deref for RcChannelsMapped<M> {
+    type Target = [i32; 16];
+
+    fn deref(&self) -> &Self::Target {
+        &self.channels
+    }
+}
+
+impl<M: ChannelMapper> core::ops::DerefMut for RcChannelsMapped<M> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.channels
     }
 }
