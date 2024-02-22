@@ -216,9 +216,9 @@ bitfield! {
     ch4, _: 54, 44;
     ch5, _: 65, 55;
     ch6, _: 76, 66;
-    ch7, _: 80, 77;
-    ch8, _: 90, 88;
-    ch9, _: 100, 99;
+    ch7, _: 87, 77;
+    ch8, _: 98, 88;
+    ch9, _: 109, 99;
     ch10, _: 120, 110;
     ch11, _: 131, 121;
     ch12, _: 142, 132;
@@ -339,5 +339,22 @@ impl<M: ChannelMapper> core::ops::Deref for RcChannelsMapped<M> {
 impl<M: ChannelMapper> core::ops::DerefMut for RcChannelsMapped<M> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.channels
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RcChannelsPacked;
+
+    #[test]
+    fn test_parse_rc_channels() {
+        assert_eq!(
+            RcChannelsPacked::parse(&[0; 22]).0,
+            [0; 16]
+        );
+        assert_eq!(
+            RcChannelsPacked::parse(&[0xff; 22]).0,
+            [2047; 16]
+        );
     }
 }
