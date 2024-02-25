@@ -18,7 +18,7 @@ fn main() {
             Ok(n) => {
                 if n > 0 {
                     parser.push_bytes(&buf[..n]);
-                    while let Some(packet) = parser.next_packet() {
+                    while let Some(Ok(packet)) = parser.next_packet() {
                         match packet {
                             Packet::LinkStatistics(link_statistics) => {
                                 println!("{:?}", link_statistics);

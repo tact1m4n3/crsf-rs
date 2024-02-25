@@ -2,14 +2,25 @@
 
 extern crate bitfield;
 extern crate crc;
+extern crate snafu;
 
 use core::marker::PhantomData;
 
 use bitfield::bitfield;
 use buffer::CircularBuffer;
 use crc::{Crc, CRC_8_DVB_S2};
+use snafu::prelude::*;
 
 mod buffer;
+
+#[non_exhaustive]
+#[derive(Debug, PartialEq, Snafu)]
+pub enum Error {
+    #[snafu(display("Checksum mismatch: expected {expected} but was {actual}"))]
+    Checksum { expected: u8, actual: u8 },
+    #[snafu(display("Unknown packet type: {packet_type}"))]
+    UnknownPacketType { packet_type: u8 },
+}
 
 #[derive(Default)]
 pub struct CrsfPacketParser {
@@ -23,7 +34,7 @@ impl CrsfPacketParser {
         });
     }
 
-    pub fn next_packet(&mut self) -> Option<Packet> {
+    pub fn next_packet(&mut self) -> Option<Result<Packet, Error>> {
         loop {
             self.sync();
 
@@ -43,9 +54,15 @@ impl CrsfPacketParser {
                 data[i] = self.buf.pop_front().unwrap_or(0);
             }
 
-            if let Some(packet) = Packet::parse(&data[..len]) {
-                break Some(packet);
-            }
+            let checksum_ix = len - 1;
+            let checksum = Self::calc_checksum(&data[2..checksum_ix]);
+            if checksum != data[checksum_ix] {
+                break Some(Err(
+                    Error::Checksum { expected: checksum, actual: data[checksum_ix] }
+                ));
+             }
+
+            break Some(Packet::parse(&data[..len]));
         }
     }
 
@@ -57,6 +74,11 @@ impl CrsfPacketParser {
         {
             self.buf.pop_front();
         }
+    }
+
+    fn calc_checksum(data: &[u8]) -> u8 {
+        let crc8_alg = Crc::<u8>::new(&CRC_8_DVB_S2);
+        crc8_alg.checksum(data)
     }
 }
 
@@ -147,33 +169,19 @@ pub enum Packet {
 impl Packet {
     pub const MAX_LENGTH: usize = 64;
 
-    pub fn parse(data: &[u8]) -> Option<Self> {
-        if !Self::validate(data) {
-            return None;
-        }
-
+    pub fn parse(data: &[u8]) -> Result<Self, Error> {
         let len = data.len();
         let payload = &data[3..len - 1];
-        if let Some(typ) = PacketType::from_u8(u8::from_le(data[2])) {
-            match typ {
-                PacketType::LinkStatistics => {
-                    Some(Packet::LinkStatistics(LinkStatistics::parse(payload)))
-                }
-                PacketType::RcChannelsPacked => {
-                    Some(Packet::RcChannelsPacked(RcChannelsPacked::parse(payload)))
-                }
-                _ => None,
+        let raw_packet_type = data[2];
+        match PacketType::from_u8(raw_packet_type) {
+            Some(PacketType::LinkStatistics) => {
+                Ok(Packet::LinkStatistics(LinkStatistics::parse(payload)))
             }
-        } else {
-            None
+            Some(PacketType::RcChannelsPacked) => {
+                Ok(Packet::RcChannelsPacked(RcChannelsPacked::parse(payload)))
+            }
+            _ => Err(Error::UnknownPacketType { packet_type: raw_packet_type }),
         }
-    }
-
-    fn validate(data: &[u8]) -> bool {
-        let len = data.len();
-        let crc8_alg = Crc::<u8>::new(&CRC_8_DVB_S2);
-        let crc8 = crc8_alg.checksum(&data[2..len - 1]);
-        crc8 == data[len - 1]
     }
 }
 
@@ -345,6 +353,7 @@ impl<M: ChannelMapper> core::ops::DerefMut for RcChannelsMapped<M> {
 #[cfg(test)]
 mod tests {
     use super::CrsfPacketParser;
+    use super::Error;
     use super::Packet;
     use super::PacketType;
     use super::RcChannelsPacked;
@@ -389,13 +398,91 @@ mod tests {
         parser.push_bytes(&[239]);
         match parser.next_packet() {
             None => panic!("Packet expected"),
-            Some(Packet::RcChannelsPacked(packet)) => {
+            Some(Ok(Packet::RcChannelsPacked(packet))) => {
                 assert_eq!(
                     packet.0,
                     RcChannelsPacked::parse(&[0; 22]).0,
                 )
             }
-            Some(_) => panic!("RC channels packet expected"),
+            Some(Ok(_)) => panic!("RC channels packet expected"),
+            Some(Err(e)) => panic!("Packet expected instead of an error: {}", e),
         }
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+    }
+
+    #[test]
+    fn test_parse_next_packet_with_validation_error() {
+        let mut parser = CrsfPacketParser::default();
+
+        // Sync
+        parser.push_bytes(&[0xc8]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Len
+        parser.push_bytes(&[24]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Type
+        parser.push_bytes(&[PacketType::RcChannelsPacked as u8]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Payload
+        parser.push_bytes(&[0; 22]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Checksum
+        parser.push_bytes(&[42]);
+        match parser.next_packet() {
+            None | Some(Ok(_)) => panic!("Validation error expected"),
+            Some(Err(e)) => {
+                assert_eq!(e, Error::Checksum { expected: 239, actual: 42 })
+            }
+        }
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+    }
+
+    #[test]
+    fn test_parse_next_packet_of_unknown_type() {
+        let mut parser = CrsfPacketParser::default();
+
+        // Sync
+        parser.push_bytes(&[0xc8]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Len
+        parser.push_bytes(&[3]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Type
+        parser.push_bytes(&[0xff]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Payload
+        parser.push_bytes(&[3; 1]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Checksum
+        parser.push_bytes(&[210]);
+        match parser.next_packet() {
+            None | Some(Ok(_)) => panic!("Unknown packet error expected"),
+            Some(Err(e)) => {
+                assert_eq!(e, Error::UnknownPacketType { packet_type: 0xff })
+            }
+        }
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
     }
 }
