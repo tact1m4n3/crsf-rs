@@ -5,7 +5,7 @@ extern crate crc;
 
 use core::marker::PhantomData;
 
-use bitfield::bitfield;
+use bitfield::{bitfield, BitRangeMut};
 use buffer::CircularBuffer;
 use crc::{Crc, CRC_8_DVB_S2};
 
@@ -146,6 +146,20 @@ pub enum Packet {
 
 impl Packet {
     pub const MAX_LENGTH: usize = 64;
+
+    pub fn new_rc_channel_packet(dest: Destination, channel_vals: &[u16]) -> [u8; 26] {
+        let mut buf: [u8; 26] = [0; 26];
+        buf[0] = dest as u8;
+        buf[1] = 0x18;
+        buf[2] = PacketType::RcChannelsPacked as u8;
+        let mut a = RcChannelsRaw(&mut buf[3..=24]);
+        for (index, val) in channel_vals.iter().enumerate() {
+            a.set_bit_range(11 * (index + 1) - 1, 11 * index, *val);
+        }
+        let crc8_alg = Crc::<u8>::new(&CRC_8_DVB_S2);
+        buf[25] = crc8_alg.checksum(&buf[2..buf.len()-1]);
+        buf
+    }
 
     pub fn parse(data: &[u8]) -> Option<Self> {
         if !Self::validate(data) {
@@ -344,6 +358,9 @@ impl<M: ChannelMapper> core::ops::DerefMut for RcChannelsMapped<M> {
 
 #[cfg(test)]
 mod tests {
+
+    use crate::{Destination, Packet};
+
     use super::RcChannelsPacked;
 
     #[test]
@@ -356,5 +373,21 @@ mod tests {
             RcChannelsPacked::parse(&[0xff; 22]).0,
             [2047; 16]
         );
+    }
+
+    #[test]
+    fn test_pack_rc_channel_packet() {
+        let buf = Packet::new_rc_channel_packet(Destination::Transmitter, &[1000;16]);
+        let parse_result = Packet::parse(&buf);
+        assert!(parse_result.is_some());
+        let packet = parse_result.unwrap();
+        match packet{
+            Packet::RcChannelsPacked(x) => {
+                x.iter().for_each(|y |{
+                    assert_eq!(*y,1000);
+                });
+            },
+            _ => panic!("failed")
+        }
     }
 }
