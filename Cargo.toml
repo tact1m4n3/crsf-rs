@@ -10,6 +10,7 @@ repository = "https://github.com/tact1m4n3/crsf-rs"
 [dependencies]
 bitfield = "0.14"
 crc = "3.0"
+snafu = { version = "0.8.0", default-features = false }
 
 [dev-dependencies]
 serialport = "4.2.2"
