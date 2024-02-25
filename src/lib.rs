@@ -34,7 +34,7 @@ impl CrsfPacketParser {
             let len =
                 (u8::from_le(self.buf.peek_front(1).unwrap()) as usize + 2).min(Packet::MAX_LENGTH);
 
-            if len >= self.buf.len() {
+            if len > self.buf.len() {
                 break None;
             }
 
@@ -344,6 +344,9 @@ impl<M: ChannelMapper> core::ops::DerefMut for RcChannelsMapped<M> {
 
 #[cfg(test)]
 mod tests {
+    use super::CrsfPacketParser;
+    use super::Packet;
+    use super::PacketType;
     use super::RcChannelsPacked;
 
     #[test]
@@ -356,5 +359,43 @@ mod tests {
             RcChannelsPacked::parse(&[0xff; 22]).0,
             [2047; 16]
         );
+    }
+
+    #[test]
+    fn test_parse_next_packet() {
+        let mut parser = CrsfPacketParser::default();
+
+        // Sync
+        parser.push_bytes(&[0xc8]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Len
+        parser.push_bytes(&[24]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Type
+        parser.push_bytes(&[PacketType::RcChannelsPacked as u8]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Payload
+        parser.push_bytes(&[0; 22]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Checksum
+        parser.push_bytes(&[239]);
+        match parser.next_packet() {
+            None => panic!("Packet expected"),
+            Some(Packet::RcChannelsPacked(packet)) => {
+                assert_eq!(
+                    packet.0,
+                    RcChannelsPacked::parse(&[0; 22]).0,
+                )
+            }
+            Some(_) => panic!("RC channels packet expected"),
+        }
     }
 }
