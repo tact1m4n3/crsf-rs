@@ -1,12 +1,10 @@
-extern crate crsf;
-
 use std::{env, io, time::Duration};
 
-use crsf::{CrsfPacketParser, DefaultChannelsMapper, Packet, RcChannelsMapped};
+use crsf::{CrsfPacketParser, DefaultChannelsMapper, PacketPayload, RcChannelsMapped};
 
 fn main() {
     let path = env::args().nth(1).expect("no serial port supplied");
-    let mut port = serialport::new(&path, 115_200)
+    let mut port = serialport::new(path, 115_200)
         .timeout(Duration::from_millis(20))
         .open()
         .expect("failed to open serial port");
@@ -19,11 +17,11 @@ fn main() {
                 if n > 0 {
                     parser.push_bytes(&buf[..n]);
                     while let Some(Ok(packet)) = parser.next_packet() {
-                        match packet {
-                            Packet::LinkStatistics(link_statistics) => {
+                        match packet.payload {
+                            PacketPayload::LinkStatistics(link_statistics) => {
                                 println!("{:?}", link_statistics);
                             }
-                            Packet::RcChannelsPacked(raw_channels) => {
+                            PacketPayload::RcChannels(raw_channels) => {
                                 println!("{:?}", raw_channels);
                                 let mapped_channels: RcChannelsMapped<DefaultChannelsMapper> =
                                     RcChannelsMapped::new(raw_channels);

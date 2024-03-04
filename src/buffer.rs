@@ -21,6 +21,12 @@ impl<const C: usize> CircularBuffer<C> {
         self.len
     }
 
+    pub fn clear(&mut self) {
+        self.len = 0;
+        self.head = 0;
+        self.tail = 0;
+    }
+
     pub fn push_back(&mut self, byte: u8) {
         if self.len >= C {
             return;

@@ -1,26 +1,14 @@
 #![no_std]
 
-extern crate bitfield;
-extern crate crc;
-extern crate snafu;
-
-use core::marker::PhantomData;
-
-use bitfield::bitfield;
-use buffer::CircularBuffer;
 use crc::{Crc, CRC_8_DVB_S2};
 use snafu::prelude::*;
 
-mod buffer;
+use buffer::CircularBuffer;
 
-#[non_exhaustive]
-#[derive(Debug, PartialEq, Snafu)]
-pub enum Error {
-    #[snafu(display("Checksum mismatch: expected {expected} but was {actual}"))]
-    Checksum { expected: u8, actual: u8 },
-    #[snafu(display("Unknown packet type: {packet_type}"))]
-    UnknownPacketType { packet_type: u8 },
-}
+pub use payloads::*;
+
+mod buffer;
+mod payloads;
 
 #[derive(Default)]
 pub struct CrsfPacketParser {
@@ -34,70 +22,202 @@ impl CrsfPacketParser {
         });
     }
 
-    pub fn next_packet(&mut self) -> Option<Result<Packet, Error>> {
-        loop {
-            self.sync();
+    pub fn clear_buffer(&mut self) {
+        self.buf.clear();
+    }
 
-            if self.buf.len() < 2 {
-                break None;
-            }
+    pub fn next_packet(&mut self) -> Option<Result<Packet, PacketError>> {
+        self.sync();
 
-            let len =
-                (u8::from_le(self.buf.peek_front(1).unwrap()) as usize + 2).min(Packet::MAX_LENGTH);
-
-            if len > self.buf.len() {
-                break None;
-            }
-
-            let mut data: [u8; Packet::MAX_LENGTH] = [0; Packet::MAX_LENGTH];
-            for i in 0..len {
-                data[i] = self.buf.pop_front().unwrap_or(0);
-            }
-
-            let checksum_ix = len - 1;
-            let checksum = Self::calc_checksum(&data[2..checksum_ix]);
-            if checksum != data[checksum_ix] {
-                break Some(Err(
-                    Error::Checksum { expected: checksum, actual: data[checksum_ix] }
-                ));
-             }
-
-            break Some(Packet::parse(&data[..len]));
+        if self.buf.len() < 2 {
+            return None;
         }
+
+        let len =
+            (u8::from_le(self.buf.peek_front(1).unwrap()) as usize + 2).min(Packet::MAX_LENGTH);
+        if len > self.buf.len() {
+            return None;
+        }
+
+        let mut data: [u8; Packet::MAX_LENGTH] = [0; Packet::MAX_LENGTH];
+        for i in 0..len {
+            data[i] = self.buf.pop_front().unwrap_or(0);
+        }
+
+        Some(Packet::new(data))
     }
 
     fn sync(&mut self) {
         while self
             .buf
             .peek_front(0)
-            .is_some_and(|val| Destination::from_u8(val).is_none())
+            .is_some_and(|val| PacketAddress::from_u8(val).is_none())
         {
             self.buf.pop_front();
         }
     }
+}
 
-    fn calc_checksum(data: &[u8]) -> u8 {
+#[derive(Debug)]
+pub struct Packet {
+    data: [u8; Packet::MAX_LENGTH],
+    len: usize,
+    addr: PacketAddress,
+    typ: PacketType,
+}
+
+impl Packet {
+    pub const MAX_LENGTH: usize = 64;
+
+    pub fn new(data: [u8; Packet::MAX_LENGTH]) -> Result<Self, PacketError> {
+        let len = (u8::from_le(data[1]) as usize + 2).min(Packet::MAX_LENGTH);
+
+        let raw_addr = u8::from_le(data[0]);
+        let addr = if let Some(addr) = PacketAddress::from_u8(raw_addr) {
+            addr
+        } else {
+            return Err(PacketError::InvalidAddress { raw_addr });
+        };
+
+        let raw_type = u8::from_le(data[2]);
+        let typ = if let Some(typ) = PacketType::from_u8(raw_type) {
+            typ
+        } else {
+            return Err(PacketError::InvalidType { raw_type });
+        };
+
+        // NOTE: should we convert checksum to target endian? I don't think so but maybe I am wrong
+        let checksum_idx = len - 1;
+        let checksum = Self::calculate_checksum(&data[2..checksum_idx]);
+        if checksum != data[checksum_idx] {
+            return Err(PacketError::ChecksumMismatch {
+                expected: u8::from_le(checksum),
+                actual: u8::from_le(data[checksum_idx]),
+            });
+        }
+
+        Ok(Self {
+            data,
+            len,
+            addr,
+            typ,
+        })
+    }
+
+    pub fn new_from_slice(data_slc: &[u8]) -> Result<Self, PacketError> {
+        let mut data: [u8; Packet::MAX_LENGTH] = [0; Packet::MAX_LENGTH];
+        data[..data_slc.len().min(Packet::MAX_LENGTH)].copy_from_slice(data_slc);
+        Self::new(data)
+    }
+
+    pub fn new_from_parts(addr: PacketAddress, payload: &PacketPayload) -> Self {
+        let mut data: [u8; Packet::MAX_LENGTH] = [0; Packet::MAX_LENGTH];
+        data[0] = u8::to_le(addr as u8);
+        match payload {
+            PacketPayload::LinkStatistics(payload) => {
+                let len_byte = LinkStatistics::PAYLOAD_LENGTH + 2;
+                let len = len_byte as usize + 2;
+                data[1] = u8::to_le(len_byte);
+
+                let typ = PacketType::LinkStatistics;
+                data[2] = u8::to_le(typ as u8);
+
+                unsafe { payload.write_unchecked(&mut data[3..]) }
+
+                let checksum_idx = len - 1;
+                data[checksum_idx] = Self::calculate_checksum(&data[2..checksum_idx]);
+
+                Self {
+                    data,
+                    len,
+                    addr,
+                    typ,
+                }
+            }
+            PacketPayload::RcChannels(payload) => {
+                let len_byte = RcChannels::PAYLOAD_LENGTH + 2;
+                let len = len_byte as usize + 2;
+                data[1] = u8::to_le(len_byte);
+
+                let typ = PacketType::RcChannelsPacked;
+                data[2] = u8::to_le(typ as u8);
+
+                unsafe { payload.write_unchecked(&mut data[3..]) }
+
+                let checksum_idx = len - 1;
+                data[checksum_idx] = Self::calculate_checksum(&data[2..checksum_idx]);
+
+                Self {
+                    data,
+                    len,
+                    addr,
+                    typ,
+                }
+            }
+        }
+    }
+
+    pub fn addr(&self) -> PacketAddress {
+        self.addr
+    }
+
+    pub fn typ(&self) -> PacketType {
+        self.typ
+    }
+
+    pub fn raw_payload(&self) -> &[u8] {
+        &self.data[3..self.len]
+    }
+
+    pub fn raw_data(&self) -> &[u8] {
+        &self.data[..self.len]
+    }
+
+    pub fn parse_payload(&self) -> Option<PacketPayload> {
+        match self.typ {
+            PacketType::LinkStatistics => Some(PacketPayload::LinkStatistics(unsafe {
+                LinkStatistics::parse_unchecked(self.raw_payload())
+            })),
+            PacketType::RcChannelsPacked => Some(PacketPayload::RcChannels(unsafe {
+                RcChannels::parse_unchecked(self.raw_payload())
+            })),
+            _ => None,
+        }
+    }
+
+    fn calculate_checksum(data: &[u8]) -> u8 {
         let crc8_alg = Crc::<u8>::new(&CRC_8_DVB_S2);
         crc8_alg.checksum(data)
     }
 }
 
+#[non_exhaustive]
+#[derive(Debug, PartialEq, Snafu)]
+pub enum PacketError {
+    #[snafu(display("Invalid packet address: {raw_addr:#04x}"))]
+    InvalidAddress { raw_addr: u8 },
+    #[snafu(display("Invalid packet type: {raw_type:#04x}"))]
+    InvalidType { raw_type: u8 },
+    #[snafu(display("Checksum mismatch: expected {expected:#04x} but was {actual:#04x}"))]
+    ChecksumMismatch { expected: u8, actual: u8 },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum Destination {
+pub enum PacketAddress {
     Transmitter = 0xEE,
     Handset = 0xEA,
     Controller = 0xC8,
     Receiver = 0xEC,
 }
 
-impl Destination {
+impl PacketAddress {
     pub fn from_u8(val: u8) -> Option<Self> {
         match val {
-            0xEE => Some(Destination::Transmitter),
-            0xEA => Some(Destination::Handset),
-            0xC8 => Some(Destination::Controller),
-            0xEC => Some(Destination::Receiver),
+            0xEE => Some(PacketAddress::Transmitter),
+            0xEA => Some(PacketAddress::Handset),
+            0xC8 => Some(PacketAddress::Controller),
+            0xEC => Some(PacketAddress::Receiver),
             _ => None,
         }
     }
@@ -160,256 +280,55 @@ impl PacketType {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum Packet {
-    LinkStatistics(LinkStatistics),
-    RcChannelsPacked(RcChannelsPacked),
-}
-
-impl Packet {
-    pub const MAX_LENGTH: usize = 64;
-
-    pub fn parse(data: &[u8]) -> Result<Self, Error> {
-        let len = data.len();
-        let payload = &data[3..len - 1];
-        let raw_packet_type = data[2];
-        match PacketType::from_u8(raw_packet_type) {
-            Some(PacketType::LinkStatistics) => {
-                Ok(Packet::LinkStatistics(LinkStatistics::parse(payload)))
-            }
-            Some(PacketType::RcChannelsPacked) => {
-                Ok(Packet::RcChannelsPacked(RcChannelsPacked::parse(payload)))
-            }
-            _ => Err(Error::UnknownPacketType { packet_type: raw_packet_type }),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LinkStatistics {
-    pub uplink_rssi: i16,
-    pub uplink_lq: u8,
-    pub downlink_rssi: i16,
-    pub downlink_lq: u8,
-    pub rf_mode: u8,
-    pub uplink_tx_power: u8,
-}
-
-impl LinkStatistics {
-    pub fn parse(data: &[u8]) -> Self {
-        let antenna = u8::from_le(data[4]);
-
-        Self {
-            uplink_rssi: if antenna == 0 {
-                -(u8::from_le(data[0]) as i16)
-            } else {
-                -(u8::from_le(data[1]) as i16)
-            },
-            uplink_lq: u8::from_le(data[2]),
-            downlink_rssi: -(u8::from_le(data[7]) as i16),
-            downlink_lq: u8::from_le(data[8]),
-            rf_mode: u8::from_le(data[5]),
-            uplink_tx_power: u8::from_le(data[6]),
-        }
-    }
-}
-
-bitfield! {
-    struct RcChannelsRaw([u8]);
-    u16;
-    ch0, _: 10, 0;
-    ch1, _: 21, 11;
-    ch2, _: 32, 22;
-    ch3, _: 43, 33;
-    ch4, _: 54, 44;
-    ch5, _: 65, 55;
-    ch6, _: 76, 66;
-    ch7, _: 87, 77;
-    ch8, _: 98, 88;
-    ch9, _: 109, 99;
-    ch10, _: 120, 110;
-    ch11, _: 131, 121;
-    ch12, _: 142, 132;
-    ch13, _: 153, 143;
-    ch14, _: 164, 154;
-    ch15, _: 175, 165;
-}
-
-#[derive(Debug, Clone)]
-pub struct RcChannelsPacked([u16; 16]);
-
-impl RcChannelsPacked {
-    pub const CHANNEL_VALUE_MIN: u16 = 172;
-    pub const CHANNEL_VALUE_1000: u16 = 191;
-    pub const CHANNEL_VALUE_MID: u16 = 992;
-    pub const CHANNEL_VALUE_2000: u16 = 1792;
-    pub const CHANNEL_VALUE_MAX: u16 = 1811;
-
-    pub fn parse(data: &[u8]) -> Self {
-        let channels_raw = RcChannelsRaw(data);
-
-        Self([
-            u16::from_le(channels_raw.ch0()),
-            u16::from_le(channels_raw.ch1()),
-            u16::from_le(channels_raw.ch2()),
-            u16::from_le(channels_raw.ch3()),
-            u16::from_le(channels_raw.ch4()),
-            u16::from_le(channels_raw.ch5()),
-            u16::from_le(channels_raw.ch6()),
-            u16::from_le(channels_raw.ch7()),
-            u16::from_le(channels_raw.ch8()),
-            u16::from_le(channels_raw.ch9()),
-            u16::from_le(channels_raw.ch10()),
-            u16::from_le(channels_raw.ch11()),
-            u16::from_le(channels_raw.ch12()),
-            u16::from_le(channels_raw.ch13()),
-            u16::from_le(channels_raw.ch14()),
-            u16::from_le(channels_raw.ch15()),
-        ])
-    }
-}
-
-impl core::ops::Deref for RcChannelsPacked {
-    type Target = [u16; 16];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl core::ops::DerefMut for RcChannelsPacked {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-pub trait ChannelMapper {
-    fn map(val: u16) -> i32;
-}
-
-pub struct DefaultChannelsMapper;
-
-impl ChannelMapper for DefaultChannelsMapper {
-    #[rustfmt::skip]
-    fn map(val: u16) -> i32 {
-        1000
-            + (val.saturating_sub(RcChannelsPacked::CHANNEL_VALUE_1000) as i32 * (2000 - 1000) * 2
-            / (RcChannelsPacked::CHANNEL_VALUE_2000 - RcChannelsPacked::CHANNEL_VALUE_1000) as i32 + 1) / 2
-    }
-}
-
-#[derive(Clone)]
-pub struct RcChannelsMapped<M: ChannelMapper> {
-    channels: [i32; 16],
-    _phantom: PhantomData<M>,
-}
-
-impl<M: ChannelMapper> RcChannelsMapped<M> {
-    pub fn new(channels: RcChannelsPacked) -> Self {
-        Self {
-            channels: [
-                M::map(channels.0[0]),
-                M::map(channels.0[1]),
-                M::map(channels.0[2]),
-                M::map(channels.0[3]),
-                M::map(channels.0[4]),
-                M::map(channels.0[5]),
-                M::map(channels.0[6]),
-                M::map(channels.0[7]),
-                M::map(channels.0[8]),
-                M::map(channels.0[9]),
-                M::map(channels.0[10]),
-                M::map(channels.0[11]),
-                M::map(channels.0[12]),
-                M::map(channels.0[13]),
-                M::map(channels.0[14]),
-                M::map(channels.0[15]),
-            ],
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<M: ChannelMapper> core::fmt::Debug for RcChannelsMapped<M> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("RcChannelsMapped").field(&self.channels).finish()
-    }
-}
-
-impl<M: ChannelMapper> core::ops::Deref for RcChannelsMapped<M> {
-    type Target = [i32; 16];
-
-    fn deref(&self) -> &Self::Target {
-        &self.channels
-    }
-}
-
-impl<M: ChannelMapper> core::ops::DerefMut for RcChannelsMapped<M> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.channels
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::CrsfPacketParser;
-    use super::Error;
-    use super::Packet;
-    use super::PacketType;
-    use super::RcChannelsPacked;
+    use crate::Packet;
+    use crate::PacketAddress;
+    use crate::PacketPayload;
 
-    #[test]
-    fn test_parse_rc_channels() {
-        assert_eq!(
-            RcChannelsPacked::parse(&[0; 22]).0,
-            [0; 16]
-        );
-        assert_eq!(
-            RcChannelsPacked::parse(&[0xff; 22]).0,
-            [2047; 16]
-        );
-    }
+    use super::CrsfPacketParser;
+    use super::PacketError;
+    use super::PacketType;
+    use super::RcChannels;
 
     #[test]
     fn test_parse_next_packet() {
         let mut parser = CrsfPacketParser::default();
 
+        let addr = PacketAddress::Controller;
+        let typ = PacketType::RcChannelsPacked;
+
         // Sync
-        parser.push_bytes(&[0xc8]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        parser.push_bytes(&[addr as u8]);
+        assert!(matches!(parser.next_packet(), None));
         // Len
         parser.push_bytes(&[24]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
         // Type
-        parser.push_bytes(&[PacketType::RcChannelsPacked as u8]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        parser.push_bytes(&[typ as u8]);
+        assert!(matches!(parser.next_packet(), None));
         // Payload
         parser.push_bytes(&[0; 22]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
         // Checksum
         parser.push_bytes(&[239]);
+
         match parser.next_packet() {
             None => panic!("Packet expected"),
-            Some(Ok(Packet::RcChannelsPacked(packet))) => {
-                assert_eq!(
-                    packet.0,
-                    RcChannelsPacked::parse(&[0; 22]).0,
-                )
+            Some(Ok(packet)) => {
+                assert_eq!(packet.addr(), addr);
+                assert_eq!(packet.typ(), typ);
+                if let Some(PacketPayload::RcChannels(RcChannels(channels))) =
+                    packet.parse_payload()
+                {
+                    assert_eq!(channels, [0; 16]);
+                } else {
+                    panic!("Packet was supposed to have a rc channels as payload")
+                }
             }
-            Some(Ok(_)) => panic!("RC channels packet expected"),
             Some(Err(e)) => panic!("Packet expected instead of an error: {}", e),
         }
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
     }
 
     #[test]
@@ -418,39 +337,56 @@ mod tests {
 
         // Sync
         parser.push_bytes(&[0xc8]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
         // Len
         parser.push_bytes(&[24]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
         // Type
         parser.push_bytes(&[PacketType::RcChannelsPacked as u8]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
         // Payload
         parser.push_bytes(&[0; 22]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
         // Checksum
         parser.push_bytes(&[42]);
         match parser.next_packet() {
             None | Some(Ok(_)) => panic!("Validation error expected"),
             Some(Err(e)) => {
-                assert_eq!(e, Error::Checksum { expected: 239, actual: 42 })
+                assert_eq!(
+                    e,
+                    PacketError::ChecksumMismatch {
+                        expected: 239,
+                        actual: 42
+                    }
+                )
             }
         }
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
     }
 
     #[test]
-    fn test_parse_next_packet_of_unknown_type() {
+    fn test_packet_construction() {
+        let addr = PacketAddress::Controller;
+        let typ = PacketType::RcChannelsPacked;
+
+        let channels: [u16; 16] = [0; 16];
+        let payload = PacketPayload::RcChannels(RcChannels(channels));
+
+        let packet = Packet::new_from_parts(addr, &payload);
+
+        assert_eq!(packet.addr, addr);
+        assert_eq!(packet.typ, typ);
+
+        let packet2 = Packet::new_from_slice(packet.raw_data()).unwrap();
+        assert_eq!(packet2.addr, addr);
+        assert_eq!(packet2.typ, typ);
+        if let Some(PacketPayload::RcChannels(RcChannels(channels2))) = packet2.parse_payload() {
+            assert_eq!(channels, channels2);
+        }
+    }
+
+    #[test]
+    fn test_parse_next_packet_with_zero_len() {
         let mut parser = CrsfPacketParser::default();
 
         // Sync
@@ -459,28 +395,14 @@ mod tests {
             matches!(parser.next_packet(), None)
         );
         // Len
-        parser.push_bytes(&[3]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
-        // Type
-        parser.push_bytes(&[0xff]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
-        // Payload
-        parser.push_bytes(&[3; 1]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
-        // Checksum
-        parser.push_bytes(&[210]);
-        match parser.next_packet() {
-            None | Some(Ok(_)) => panic!("Unknown packet error expected"),
-            Some(Err(e)) => {
-                assert_eq!(e, Error::UnknownPacketType { packet_type: 0xff })
-            }
-        }
+        parser.push_bytes(&[0]);
+        panic!("{:?}", parser.next_packet());
+        // match parser.next_packet() {
+        //     None | Some(Ok(_)) => panic!("Validation error expected"),
+        //     Some(Err(e)) => {
+        //         panic!(e);
+        //     }
+        // }
         assert!(
             matches!(parser.next_packet(), None)
         );
