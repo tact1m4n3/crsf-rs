@@ -17,15 +17,14 @@ fn main() {
                 if n > 0 {
                     parser.push_bytes(&buf[..n]);
                     while let Some(Ok(packet)) = parser.next_packet() {
-                        match packet.payload {
-                            PacketPayload::LinkStatistics(link_statistics) => {
-                                println!("{:?}", link_statistics);
-                            }
-                            PacketPayload::RcChannels(raw_channels) => {
-                                println!("{:?}", raw_channels);
-                                let mapped_channels: RcChannelsMapped<DefaultChannelsMapper> =
-                                    RcChannelsMapped::new(raw_channels);
-                                println!("{:?}", mapped_channels);
+                        if let Some(payload) = packet.parse_payload() {
+                            match payload {
+                                PacketPayload::LinkStatistics(link_statistics) => {
+                                    println!("{:?}", link_statistics);
+                                }
+                                PacketPayload::RcChannels(channels) => {
+                                    println!("{:?}", channels);
+                                }
                             }
                         }
                     }
