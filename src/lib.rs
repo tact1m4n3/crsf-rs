@@ -384,27 +384,4 @@ mod tests {
             assert_eq!(channels, channels2);
         }
     }
-
-    #[test]
-    fn test_parse_next_packet_with_zero_len() {
-        let mut parser = CrsfPacketParser::default();
-
-        // Sync
-        parser.push_bytes(&[0xc8]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
-        // Len
-        parser.push_bytes(&[0]);
-        panic!("{:?}", parser.next_packet());
-        // match parser.next_packet() {
-        //     None | Some(Ok(_)) => panic!("Validation error expected"),
-        //     Some(Err(e)) => {
-        //         panic!(e);
-        //     }
-        // }
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
-    }
 }

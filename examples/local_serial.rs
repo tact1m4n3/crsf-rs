@@ -1,6 +1,6 @@
 use std::{env, io, time::Duration};
 
-use crsf::{CrsfPacketParser, DefaultChannelsMapper, PacketPayload, RcChannelsMapped};
+use crsf::{CrsfPacketParser, PacketPayload};
 
 fn main() {
     let path = env::args().nth(1).expect("no serial port supplied");
