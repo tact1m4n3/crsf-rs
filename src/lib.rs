@@ -82,29 +82,28 @@ impl Packet {
     pub const MAX_LENGTH: usize = 64;
 
     pub fn new(data: [u8; Packet::MAX_LENGTH]) -> Result<Self, PacketError> {
-        let len = (u8::from_le(data[1]) as usize + 2).min(Packet::MAX_LENGTH);
+        let len = (data[1] as usize + 2).min(Packet::MAX_LENGTH);
 
-        let raw_addr = u8::from_le(data[0]);
+        let raw_addr = data[0];
         let addr = if let Some(addr) = PacketAddress::from_u8(raw_addr) {
             addr
         } else {
             return Err(PacketError::InvalidAddress { raw_addr });
         };
 
-        let raw_type = u8::from_le(data[2]);
+        let raw_type = data[2];
         let typ = if let Some(typ) = PacketType::from_u8(raw_type) {
             typ
         } else {
             return Err(PacketError::InvalidType { raw_type });
         };
 
-        // NOTE: should we convert checksum to target endian? I don't think so but maybe I am wrong
         let checksum_idx = len - 1;
         let checksum = Self::calculate_checksum(&data[2..checksum_idx]);
         if checksum != data[checksum_idx] {
             return Err(PacketError::ChecksumMismatch {
-                expected: u8::from_le(checksum),
-                actual: u8::from_le(data[checksum_idx]),
+                expected: checksum,
+                actual: data[checksum_idx],
             });
         }
 
@@ -124,15 +123,15 @@ impl Packet {
 
     pub fn new_from_parts(addr: PacketAddress, payload: &PacketPayload) -> Self {
         let mut data: [u8; Packet::MAX_LENGTH] = [0; Packet::MAX_LENGTH];
-        data[0] = u8::to_le(addr as u8);
+        data[0] = addr as u8;
         match payload {
             PacketPayload::LinkStatistics(payload) => {
                 let len_byte = LinkStatistics::PAYLOAD_LENGTH + 2;
                 let len = len_byte as usize + 2;
-                data[1] = u8::to_le(len_byte);
+                data[1] = len_byte;
 
                 let typ = PacketType::LinkStatistics;
-                data[2] = u8::to_le(typ as u8);
+                data[2] = typ as u8;
 
                 unsafe { payload.write_unchecked(&mut data[3..]) }
 
@@ -149,10 +148,10 @@ impl Packet {
             PacketPayload::RcChannels(payload) => {
                 let len_byte = RcChannels::PAYLOAD_LENGTH + 2;
                 let len = len_byte as usize + 2;
-                data[1] = u8::to_le(len_byte);
+                data[1] = len_byte;
 
                 let typ = PacketType::RcChannelsPacked;
-                data[2] = u8::to_le(typ as u8);
+                data[2] = typ as u8;
 
                 unsafe { payload.write_unchecked(&mut data[3..]) }
 

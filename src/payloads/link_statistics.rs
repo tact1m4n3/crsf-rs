@@ -17,30 +17,30 @@ impl LinkStatistics {
 
     pub(crate) unsafe fn parse_unchecked(data: &[u8]) -> Self {
         Self {
-            uplink_rssi_1: u8::from_le(data[0]),
-            uplink_rssi_2: u8::from_le(data[1]),
-            uplink_link_quality: u8::from_le(data[2]),
-            uplink_snr: i8::from_le(data[3] as i8),
-            active_antenna: u8::from_le(data[4]),
-            rf_mode: u8::from_le(data[5]),
-            uplink_tx_power: u8::from_le(data[6]),
-            downlink_rssi: u8::from_le(data[7]),
-            downlink_link_quality: u8::from_le(data[8]),
-            downlink_snr: i8::from_le(data[9] as i8),
+            uplink_rssi_1: data[0],
+            uplink_rssi_2: data[1],
+            uplink_link_quality: data[2],
+            uplink_snr: data[3] as i8,
+            active_antenna: data[4],
+            rf_mode: data[5],
+            uplink_tx_power: data[6],
+            downlink_rssi: data[7],
+            downlink_link_quality: data[8],
+            downlink_snr: data[9] as i8,
         }
     }
 
     pub(crate) unsafe fn write_unchecked(&self, data: &mut [u8]) {
-        data[0] = self.uplink_rssi_1.to_le();
-        data[1] = self.uplink_rssi_2.to_le();
-        data[2] = self.uplink_link_quality.to_le();
-        data[3] = self.uplink_snr.to_le() as u8;
-        data[4] = self.active_antenna.to_le();
-        data[5] = self.rf_mode.to_le();
-        data[6] = self.uplink_tx_power.to_le();
-        data[7] = self.downlink_rssi.to_le();
-        data[8] = self.downlink_link_quality.to_le();
-        data[9] = self.downlink_snr.to_le() as u8;
+        data[0] = self.uplink_rssi_1;
+        data[1] = self.uplink_rssi_2;
+        data[2] = self.uplink_link_quality;
+        data[3] = self.uplink_snr as u8;
+        data[4] = self.active_antenna;
+        data[5] = self.rf_mode;
+        data[6] = self.uplink_tx_power;
+        data[7] = self.downlink_rssi;
+        data[8] = self.downlink_link_quality;
+        data[9] = self.downlink_snr as u8;
     }
 }
 
