@@ -1,6 +1,8 @@
 #![no_std]
 
 use crc::{Crc, CRC_8_DVB_S2};
+#[cfg(feature = "defmt")]
+use defmt;
 use snafu::prelude::*;
 
 use buffer::CircularBuffer;
@@ -204,6 +206,7 @@ impl Packet {
 
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Snafu)]
+#[cfg_attr(feature = "defmt", defive(defmt::Format))]
 pub enum PacketError {
     #[snafu(display("Invalid packet address: {raw_addr:#04x}"))]
     InvalidAddress { raw_addr: u8 },
