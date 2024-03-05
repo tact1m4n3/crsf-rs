@@ -16,6 +16,13 @@ pub struct CrsfPacketParser {
 }
 
 impl CrsfPacketParser {
+    // Sync and length bytes
+    const HEADER_LENGTH: usize = 2;
+    // Packet type and checksum bytes are mandatory
+    const MIN_DATA_LENGTH: u8 = 2;
+    // Number of bytes of packet type, payload and checksum
+    const MAX_DATA_LENGTH: u8 = Packet::MAX_LENGTH as u8 - Self::MIN_DATA_LENGTH;
+
     pub fn push_bytes(&mut self, bytes: &[u8]) {
         bytes.iter().for_each(|&val| {
             self.buf.push_back(val);
@@ -29,18 +36,23 @@ impl CrsfPacketParser {
     pub fn next_packet(&mut self) -> Option<Result<Packet, PacketError>> {
         self.sync();
 
-        if self.buf.len() < 2 {
+        if self.buf.len() < Self::HEADER_LENGTH {
             return None;
         }
 
-        let len =
-            (u8::from_le(self.buf.peek_front(1).unwrap()) as usize + 2).min(Packet::MAX_LENGTH);
-        if len > self.buf.len() {
+        let data_len = self.buf.peek_front(1).unwrap();
+        if !(Self::MIN_DATA_LENGTH..=Self::MAX_DATA_LENGTH).contains(&data_len) {
+            self.buf.clear();
+            return Some(Err(PacketError::InvalidDataLength { len: data_len }));
+        }
+        let total_len = Self::HEADER_LENGTH + data_len as usize;
+
+        if total_len > self.buf.len() {
             return None;
         }
 
         let mut data: [u8; Packet::MAX_LENGTH] = [0; Packet::MAX_LENGTH];
-        for i in 0..len {
+        for i in 0..total_len {
             data[i] = self.buf.pop_front().unwrap_or(0);
         }
 
@@ -200,6 +212,8 @@ pub enum PacketError {
     InvalidType { raw_type: u8 },
     #[snafu(display("Checksum mismatch: expected {expected:#04x} but was {actual:#04x}"))]
     ChecksumMismatch { expected: u8, actual: u8 },
+    #[snafu(display("Invalid data length: {len}"))]
+    InvalidDataLength { len: u8 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -362,6 +376,78 @@ mod tests {
             }
         }
         assert!(matches!(parser.next_packet(), None));
+    }
+
+    #[test]
+    fn test_parse_next_packet_with_zero_len() {
+        let mut parser = CrsfPacketParser::default();
+
+        // Sync
+        parser.push_bytes(&[0xc8]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Len
+        parser.push_bytes(&[0]);
+        match parser.next_packet() {
+            None | Some(Ok(_)) => panic!("Validation error expected"),
+            Some(Err(e)) => {
+                assert_eq!(e, PacketError::InvalidDataLength { len: 0 })
+            }
+        }
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+    }
+
+    #[test]
+    fn test_parse_next_packet_with_max_len() {
+        let mut parser = CrsfPacketParser::default();
+
+        // Sync
+        parser.push_bytes(&[0xc8]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Len
+        parser.push_bytes(&[62]);
+        // Type
+        parser.push_bytes(&[0xff]);
+        // Payload
+        parser.push_bytes(&[0; 60]);
+        // Checksum
+        parser.push_bytes(&[33]);
+        match parser.next_packet() {
+            None | Some(Ok(_)) => panic!("Validation error expected"),
+            Some(Err(e)) => {
+                assert_eq!(e, PacketError::InvalidType { raw_type: 0xff })
+            }
+        }
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+    }
+
+    #[test]
+    fn test_parse_next_packet_with_too_big_len() {
+        let mut parser = CrsfPacketParser::default();
+
+        // Sync
+        parser.push_bytes(&[0xc8]);
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
+        // Len
+        parser.push_bytes(&[63]);
+        match parser.next_packet() {
+            None | Some(Ok(_)) => panic!("Validation error expected"),
+            Some(Err(e)) => {
+                assert_eq!(e, PacketError::InvalidDataLength { len: 63 })
+            }
+        }
+        assert!(
+            matches!(parser.next_packet(), None)
+        );
     }
 
     #[test]
