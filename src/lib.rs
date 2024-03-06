@@ -7,23 +7,35 @@ use snafu::prelude::*;
 
 use buffer::CircularBuffer;
 
-pub use payloads::*;
+pub use packets::*;
 
 mod buffer;
-mod payloads;
+mod packets;
 
-#[derive(Default)]
-pub struct CrsfPacketParser {
-    buf: CircularBuffer<{ 4 * Packet::MAX_LENGTH }>,
+pub const MAX_PACKET_LENGTH: usize = 64;
+pub const PACKET_HEADER_LENGTH: usize = 2;
+
+pub struct PacketParser<const C: usize> {
+    addr: PacketAddress,
+    buf: CircularBuffer<C>,
 }
 
-impl CrsfPacketParser {
-    // Sync and length bytes
-    const HEADER_LENGTH: usize = 2;
+impl<const C: usize> PacketParser<C> {
     // Packet type and checksum bytes are mandatory
     const MIN_DATA_LENGTH: u8 = 2;
     // Number of bytes of packet type, payload and checksum
-    const MAX_DATA_LENGTH: u8 = Packet::MAX_LENGTH as u8 - Self::MIN_DATA_LENGTH;
+    const MAX_DATA_LENGTH: u8 = MAX_PACKET_LENGTH as u8 - Self::MIN_DATA_LENGTH;
+
+    pub const fn new(addr: PacketAddress) -> Self {
+        Self {
+            addr,
+            buf: CircularBuffer::new(),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.buf.clear();
+    }
 
     pub fn push_bytes(&mut self, bytes: &[u8]) {
         bytes.iter().for_each(|&val| {
@@ -31,41 +43,46 @@ impl CrsfPacketParser {
         });
     }
 
-    pub fn clear_buffer(&mut self) {
-        self.buf.clear();
-    }
-
-    pub fn next_packet(&mut self) -> Option<Result<Packet, PacketError>> {
+    pub fn next_raw_packet(&mut self) -> Option<Result<RawPacket, PacketError>> {
         self.sync();
 
-        if self.buf.len() < Self::HEADER_LENGTH {
+        if self.buf.len() < PACKET_HEADER_LENGTH {
             return None;
         }
 
-        let data_len = self.buf.peek_front(1).unwrap();
-        if !(Self::MIN_DATA_LENGTH..=Self::MAX_DATA_LENGTH).contains(&data_len) {
-            self.buf.clear();
-            return Some(Err(PacketError::InvalidDataLength { len: data_len }));
+        let len_byte = self.buf.peek_front(1).unwrap();
+        if !(Self::MIN_DATA_LENGTH..=Self::MAX_DATA_LENGTH).contains(&len_byte) {
+            for _ in 0..PACKET_HEADER_LENGTH {
+                self.buf.pop_front();
+            }
+            return Some(Err(PacketError::InvalidLength { len: len_byte }));
         }
-        let total_len = Self::HEADER_LENGTH + data_len as usize;
+        let len = PACKET_HEADER_LENGTH + len_byte as usize;
 
-        if total_len > self.buf.len() {
+        if len > self.buf.len() {
             return None;
         }
 
-        let mut data: [u8; Packet::MAX_LENGTH] = [0; Packet::MAX_LENGTH];
-        for i in 0..total_len {
+        let mut data: [u8; MAX_PACKET_LENGTH] = [0; MAX_PACKET_LENGTH];
+        for i in 0..len {
             data[i] = self.buf.pop_front().unwrap_or(0);
         }
 
-        Some(Packet::new(data))
+        Some(Ok(RawPacket { data, len }))
+    }
+
+    pub fn next_packet(&mut self) -> Option<Result<Packet, PacketError>> {
+        self.next_raw_packet().map(|raw_packet| match raw_packet {
+            Ok(raw_packet) => Packet::from_raw(&raw_packet),
+            Err(err) => Err(err),
+        })
     }
 
     fn sync(&mut self) {
         while self
             .buf
             .peek_front(0)
-            .is_some_and(|val| PacketAddress::from_u8(val).is_none())
+            .is_some_and(|val| PacketAddress::from_u8(val) != Some(self.addr))
         {
             self.buf.pop_front();
         }
@@ -73,34 +90,16 @@ impl CrsfPacketParser {
 }
 
 #[derive(Debug)]
-pub struct Packet {
-    data: [u8; Packet::MAX_LENGTH],
-    len: usize,
-    addr: PacketAddress,
-    typ: PacketType,
+pub enum Packet {
+    LinkStatistics(LinkStatistics),
+    RcChannels(RcChannels),
 }
 
 impl Packet {
-    pub const MAX_LENGTH: usize = 64;
+    pub fn from_raw(raw_packet: &RawPacket) -> Result<Self, PacketError> {
+        let data = raw_packet.data();
 
-    pub fn new(data: [u8; Packet::MAX_LENGTH]) -> Result<Self, PacketError> {
-        let len = (data[1] as usize + 2).min(Packet::MAX_LENGTH);
-
-        let raw_addr = data[0];
-        let addr = if let Some(addr) = PacketAddress::from_u8(raw_addr) {
-            addr
-        } else {
-            return Err(PacketError::InvalidAddress { raw_addr });
-        };
-
-        let raw_type = data[2];
-        let typ = if let Some(typ) = PacketType::from_u8(raw_type) {
-            typ
-        } else {
-            return Err(PacketError::InvalidType { raw_type });
-        };
-
-        let checksum_idx = len - 1;
+        let checksum_idx = data.len() - 1;
         let checksum = Self::calculate_checksum(&data[2..checksum_idx]);
         if checksum != data[checksum_idx] {
             return Err(PacketError::ChecksumMismatch {
@@ -109,92 +108,51 @@ impl Packet {
             });
         }
 
-        Ok(Self {
-            data,
-            len,
-            addr,
-            typ,
-        })
-    }
-
-    pub fn new_from_slice(data_slc: &[u8]) -> Result<Self, PacketError> {
-        let mut data: [u8; Packet::MAX_LENGTH] = [0; Packet::MAX_LENGTH];
-        data[..data_slc.len().min(Packet::MAX_LENGTH)].copy_from_slice(data_slc);
-        Self::new(data)
-    }
-
-    pub fn new_from_parts(addr: PacketAddress, payload: &PacketPayload) -> Self {
-        let mut data: [u8; Packet::MAX_LENGTH] = [0; Packet::MAX_LENGTH];
-        data[0] = addr as u8;
-        match payload {
-            PacketPayload::LinkStatistics(payload) => {
-                let len_byte = LinkStatistics::PAYLOAD_LENGTH + 2;
-                let len = len_byte as usize + 2;
-                data[1] = len_byte;
-
-                let typ = PacketType::LinkStatistics;
-                data[2] = typ as u8;
-
-                unsafe { payload.write_unchecked(&mut data[3..]) }
-
-                let checksum_idx = len - 1;
-                data[checksum_idx] = Self::calculate_checksum(&data[2..checksum_idx]);
-
-                Self {
-                    data,
-                    len,
-                    addr,
-                    typ,
-                }
-            }
-            PacketPayload::RcChannels(payload) => {
-                let len_byte = RcChannels::PAYLOAD_LENGTH + 2;
-                let len = len_byte as usize + 2;
-                data[1] = len_byte;
-
-                let typ = PacketType::RcChannelsPacked;
-                data[2] = typ as u8;
-
-                unsafe { payload.write_unchecked(&mut data[3..]) }
-
-                let checksum_idx = len - 1;
-                data[checksum_idx] = Self::calculate_checksum(&data[2..checksum_idx]);
-
-                Self {
-                    data,
-                    len,
-                    addr,
-                    typ,
-                }
-            }
+        let raw_type = data[2];
+        match PacketType::from_u8(raw_type) {
+            Some(PacketType::RcChannelsPacked) => Ok(Packet::RcChannels(unsafe {
+                RcChannels::parse_unchecked(&data[3..])
+            })),
+            Some(PacketType::LinkStatistics) => Ok(Packet::LinkStatistics(unsafe {
+                LinkStatistics::parse_unchecked(&data[3..])
+            })),
+            _ => Err(PacketError::UnknownType { raw_type }),
         }
     }
 
-    pub fn addr(&self) -> PacketAddress {
-        self.addr
-    }
+    pub fn into_raw(&self, addr: PacketAddress) -> RawPacket {
+        let mut data: [u8; MAX_PACKET_LENGTH] = [0; MAX_PACKET_LENGTH];
 
-    pub fn typ(&self) -> PacketType {
-        self.typ
-    }
+        data[0] = addr as u8;
+        match self {
+            Packet::LinkStatistics(payload) => {
+                let len_byte = LinkStatistics::PAYLOAD_LENGTH + 2;
+                let len = PACKET_HEADER_LENGTH + len_byte as usize;
+                data[1] = len_byte;
 
-    pub fn raw_payload(&self) -> &[u8] {
-        &self.data[3..self.len]
-    }
+                data[2] = PacketType::LinkStatistics as u8;
 
-    pub fn raw_data(&self) -> &[u8] {
-        &self.data[..self.len]
-    }
+                unsafe { payload.write_unchecked(&mut data[3..]) }
 
-    pub fn parse_payload(&self) -> Option<PacketPayload> {
-        match self.typ {
-            PacketType::LinkStatistics => Some(PacketPayload::LinkStatistics(unsafe {
-                LinkStatistics::parse_unchecked(self.raw_payload())
-            })),
-            PacketType::RcChannelsPacked => Some(PacketPayload::RcChannels(unsafe {
-                RcChannels::parse_unchecked(self.raw_payload())
-            })),
-            _ => None,
+                let checksum_idx = len - 1;
+                data[checksum_idx] = Self::calculate_checksum(&data[2..checksum_idx]);
+
+                RawPacket { data, len }
+            }
+            Packet::RcChannels(payload) => {
+                let len_byte = RcChannels::PAYLOAD_LENGTH + 2;
+                let len = PACKET_HEADER_LENGTH + len_byte as usize;
+                data[1] = len_byte;
+
+                data[2] = PacketType::RcChannelsPacked as u8;
+
+                unsafe { payload.write_unchecked(&mut data[3..]) }
+
+                let checksum_idx = len - 1;
+                data[checksum_idx] = Self::calculate_checksum(&data[2..checksum_idx]);
+
+                RawPacket { data, len }
+            }
         }
     }
 
@@ -204,18 +162,28 @@ impl Packet {
     }
 }
 
+#[derive(Debug)]
+pub struct RawPacket {
+    data: [u8; MAX_PACKET_LENGTH],
+    len: usize,
+}
+
+impl RawPacket {
+    pub fn data(&self) -> &[u8] {
+        &self.data[..self.len]
+    }
+}
+
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Snafu)]
 #[cfg_attr(feature = "defmt", defive(defmt::Format))]
 pub enum PacketError {
-    #[snafu(display("Invalid packet address: {raw_addr:#04x}"))]
-    InvalidAddress { raw_addr: u8 },
-    #[snafu(display("Invalid packet type: {raw_type:#04x}"))]
-    InvalidType { raw_type: u8 },
+    #[snafu(display("Invalid length: {len}"))]
+    InvalidLength { len: u8 },
+    #[snafu(display("Unknown type: {raw_type:#04x}"))]
+    UnknownType { raw_type: u8 },
     #[snafu(display("Checksum mismatch: expected {expected:#04x} but was {actual:#04x}"))]
     ChecksumMismatch { expected: u8, actual: u8 },
-    #[snafu(display("Invalid data length: {len}"))]
-    InvalidDataLength { len: u8 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,18 +268,17 @@ impl PacketType {
 mod tests {
     use crate::Packet;
     use crate::PacketAddress;
-    use crate::PacketPayload;
 
-    use super::CrsfPacketParser;
     use super::PacketError;
+    use super::PacketParser;
     use super::PacketType;
     use super::RcChannels;
 
     #[test]
     fn test_parse_next_packet() {
-        let mut parser = CrsfPacketParser::default();
-
         let addr = PacketAddress::Controller;
+        let mut parser = PacketParser::<1024>::new(addr);
+
         let typ = PacketType::RcChannelsPacked;
 
         // Sync
@@ -332,14 +299,10 @@ mod tests {
         match parser.next_packet() {
             None => panic!("Packet expected"),
             Some(Ok(packet)) => {
-                assert_eq!(packet.addr(), addr);
-                assert_eq!(packet.typ(), typ);
-                if let Some(PacketPayload::RcChannels(RcChannels(channels))) =
-                    packet.parse_payload()
-                {
+                if let Packet::RcChannels(RcChannels(channels)) = packet {
                     assert_eq!(channels, [0; 16]);
                 } else {
-                    panic!("Packet was supposed to have a rc channels as payload")
+                    panic!("Packet was supposed to be of type rc channels");
                 }
             }
             Some(Err(e)) => panic!("Packet expected instead of an error: {}", e),
@@ -349,10 +312,11 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet_with_validation_error() {
-        let mut parser = CrsfPacketParser::default();
+        let addr = PacketAddress::Controller;
+        let mut parser = PacketParser::<1024>::new(addr);
 
         // Sync
-        parser.push_bytes(&[0xc8]);
+        parser.push_bytes(&[addr as u8]);
         assert!(matches!(parser.next_packet(), None));
         // Len
         parser.push_bytes(&[24]);
@@ -365,6 +329,7 @@ mod tests {
         assert!(matches!(parser.next_packet(), None));
         // Checksum
         parser.push_bytes(&[42]);
+
         match parser.next_packet() {
             None | Some(Ok(_)) => panic!("Validation error expected"),
             Some(Err(e)) => {
@@ -382,35 +347,31 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet_with_zero_len() {
-        let mut parser = CrsfPacketParser::default();
+        let addr = PacketAddress::Controller;
+        let mut parser = PacketParser::<1024>::new(addr);
 
         // Sync
-        parser.push_bytes(&[0xc8]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        parser.push_bytes(&[addr as u8]);
+        assert!(matches!(parser.next_packet(), None));
         // Len
         parser.push_bytes(&[0]);
         match parser.next_packet() {
             None | Some(Ok(_)) => panic!("Validation error expected"),
             Some(Err(e)) => {
-                assert_eq!(e, PacketError::InvalidDataLength { len: 0 })
+                assert_eq!(e, PacketError::InvalidLength { len: 0 })
             }
         }
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
     }
 
     #[test]
     fn test_parse_next_packet_with_max_len() {
-        let mut parser = CrsfPacketParser::default();
+        let addr = PacketAddress::Controller;
+        let mut parser = PacketParser::<1024>::new(addr);
 
         // Sync
-        parser.push_bytes(&[0xc8]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        parser.push_bytes(&[addr as u8]);
+        assert!(matches!(parser.next_packet(), None));
         // Len
         parser.push_bytes(&[62]);
         // Type
@@ -422,53 +383,42 @@ mod tests {
         match parser.next_packet() {
             None | Some(Ok(_)) => panic!("Validation error expected"),
             Some(Err(e)) => {
-                assert_eq!(e, PacketError::InvalidType { raw_type: 0xff })
+                assert_eq!(e, PacketError::UnknownType { raw_type: 0xff })
             }
         }
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
     }
 
     #[test]
     fn test_parse_next_packet_with_too_big_len() {
-        let mut parser = CrsfPacketParser::default();
+        let addr = PacketAddress::Controller;
+        let mut parser = PacketParser::<1024>::new(addr);
 
         // Sync
         parser.push_bytes(&[0xc8]);
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
         // Len
         parser.push_bytes(&[63]);
         match parser.next_packet() {
             None | Some(Ok(_)) => panic!("Validation error expected"),
             Some(Err(e)) => {
-                assert_eq!(e, PacketError::InvalidDataLength { len: 63 })
+                assert_eq!(e, PacketError::InvalidLength { len: 63 })
             }
         }
-        assert!(
-            matches!(parser.next_packet(), None)
-        );
+        assert!(matches!(parser.next_packet(), None));
     }
 
     #[test]
     fn test_packet_construction() {
         let addr = PacketAddress::Controller;
-        let typ = PacketType::RcChannelsPacked;
 
         let channels: [u16; 16] = [0; 16];
-        let payload = PacketPayload::RcChannels(RcChannels(channels));
+        let packet = Packet::RcChannels(RcChannels(channels));
 
-        let packet = Packet::new_from_parts(addr, &payload);
+        let raw_packet = packet.into_raw(addr);
 
-        assert_eq!(packet.addr, addr);
-        assert_eq!(packet.typ, typ);
-
-        let packet2 = Packet::new_from_slice(packet.raw_data()).unwrap();
-        assert_eq!(packet2.addr, addr);
-        assert_eq!(packet2.typ, typ);
-        if let Some(PacketPayload::RcChannels(RcChannels(channels2))) = packet2.parse_payload() {
+        let packet2 = Packet::from_raw(&raw_packet).unwrap();
+        if let Packet::RcChannels(RcChannels(channels2)) = packet2 {
             assert_eq!(channels, channels2);
         }
     }

@@ -5,8 +5,8 @@ pub struct CircularBuffer<const C: usize> {
     tail: usize,
 }
 
-impl<const C: usize> Default for CircularBuffer<C> {
-    fn default() -> Self {
+impl<const C: usize> CircularBuffer<C> {
+    pub const fn new() -> Self {
         Self {
             data: [0; C],
             len: 0,
@@ -14,9 +14,7 @@ impl<const C: usize> Default for CircularBuffer<C> {
             tail: 0,
         }
     }
-}
 
-impl<const C: usize> CircularBuffer<C> {
     pub const fn len(&self) -> usize {
         self.len
     }

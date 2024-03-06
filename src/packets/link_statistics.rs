@@ -46,7 +46,7 @@ impl LinkStatistics {
 
 #[cfg(test)]
 mod tests {
-    use crate::{LinkStatistics, Packet};
+    use crate::{LinkStatistics, MAX_PACKET_LENGTH};
 
     #[test]
     fn test_link_statistics_write_and_parse() {
@@ -63,7 +63,7 @@ mod tests {
             downlink_snr: -68,
         };
 
-        let mut data = [0u8; Packet::MAX_LENGTH];
+        let mut data = [0u8; MAX_PACKET_LENGTH];
         unsafe { original.write_unchecked(&mut data) }
 
         assert_eq!(data[0], 100_u8.to_le());

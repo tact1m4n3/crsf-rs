@@ -1,6 +1,6 @@
 use std::{env, io, time::Duration};
 
-use crsf::{CrsfPacketParser, PacketPayload};
+use crsf::{Packet, PacketAddress, PacketParser};
 
 fn main() {
     let path = env::args().nth(1).expect("no serial port supplied");
@@ -10,21 +10,19 @@ fn main() {
         .expect("failed to open serial port");
 
     let mut buf = [0; 1024];
-    let mut parser = CrsfPacketParser::default();
+    let mut parser = PacketParser::<1024>::new(PacketAddress::Controller);
     loop {
         match port.read(buf.as_mut_slice()) {
             Ok(n) => {
                 if n > 0 {
                     parser.push_bytes(&buf[..n]);
                     while let Some(Ok(packet)) = parser.next_packet() {
-                        if let Some(payload) = packet.parse_payload() {
-                            match payload {
-                                PacketPayload::LinkStatistics(link_statistics) => {
-                                    println!("{:?}", link_statistics);
-                                }
-                                PacketPayload::RcChannels(channels) => {
-                                    println!("{:?}", channels);
-                                }
+                        match packet {
+                            Packet::LinkStatistics(link_statistics) => {
+                                println!("{:?}", link_statistics);
+                            }
+                            Packet::RcChannels(channels) => {
+                                println!("{:?}", channels);
                             }
                         }
                     }
