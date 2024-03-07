@@ -69,14 +69,7 @@ impl<const C: usize> PacketParser<C> {
         Some(Ok(RawPacket { data, len }))
     }
 
-    pub fn next_packet(&mut self) -> Option<Result<Packet, PacketError>> {
-        self.next_raw_packet().map(|raw_packet| match raw_packet {
-            Ok(raw_packet) => Packet::from_raw(&raw_packet),
-            Err(err) => Err(err),
-        })
-    }
-
-    pub fn next_packet_with_address(&mut self) -> Option<Result<(PacketAddress, Packet), PacketError>> {
+    pub fn next_packet(&mut self) -> Option<Result<(PacketAddress, Packet), PacketError>> {
         self.next_raw_packet().map(|raw_packet| match raw_packet {
             Ok(raw_packet) => {
                 let destination = PacketAddress::from_u8(raw_packet.data[0]).unwrap();
@@ -307,7 +300,7 @@ mod tests {
 
         match parser.next_packet() {
             None => panic!("Packet expected"),
-            Some(Ok(packet)) => {
+            Some(Ok((_, packet))) => {
                 if let Packet::RcChannels(RcChannels(channels)) = packet {
                     assert_eq!(channels, [0; 16]);
                 } else {
