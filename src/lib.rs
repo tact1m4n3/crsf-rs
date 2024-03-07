@@ -16,7 +16,6 @@ pub const MAX_PACKET_LENGTH: usize = 64;
 pub const PACKET_HEADER_LENGTH: usize = 2;
 
 pub struct PacketParser<const C: usize> {
-    addr: PacketAddress,
     buf: CircularBuffer<C>,
 }
 
@@ -26,9 +25,8 @@ impl<const C: usize> PacketParser<C> {
     // Number of bytes of packet type, payload and checksum
     const MAX_DATA_LENGTH: u8 = MAX_PACKET_LENGTH as u8 - Self::MIN_DATA_LENGTH;
 
-    pub const fn new(addr: PacketAddress) -> Self {
+    pub const fn new() -> Self {
         Self {
-            addr,
             buf: CircularBuffer::new(),
         }
     }
@@ -78,11 +76,22 @@ impl<const C: usize> PacketParser<C> {
         })
     }
 
+    pub fn next_packet_with_address(&mut self) -> Option<Result<(PacketAddress, Packet), PacketError>> {
+        self.next_raw_packet().map(|raw_packet| match raw_packet {
+            Ok(raw_packet) => {
+                let destination = PacketAddress::from_u8(raw_packet.data[0]).unwrap();
+                let packet = Packet::from_raw(&raw_packet)?;
+                Ok((destination, packet))
+            },
+            Err(err) => Err(err),
+        })
+    }
+
     fn sync(&mut self) {
         while self
             .buf
             .peek_front(0)
-            .is_some_and(|val| PacketAddress::from_u8(val) != Some(self.addr))
+            .is_some_and(|val| PacketAddress::from_u8(val).is_none())
         {
             self.buf.pop_front();
         }
@@ -276,9 +285,9 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet() {
-        let addr = PacketAddress::Controller;
-        let mut parser = PacketParser::<1024>::new(addr);
+        let mut parser = PacketParser::<1024>::new();
 
+        let addr = PacketAddress::Controller;
         let typ = PacketType::RcChannelsPacked;
 
         // Sync
@@ -312,8 +321,9 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet_with_validation_error() {
+        let mut parser = PacketParser::<1024>::new();
+
         let addr = PacketAddress::Controller;
-        let mut parser = PacketParser::<1024>::new(addr);
 
         // Sync
         parser.push_bytes(&[addr as u8]);
@@ -347,8 +357,9 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet_with_zero_len() {
+        let mut parser = PacketParser::<1024>::new();
+
         let addr = PacketAddress::Controller;
-        let mut parser = PacketParser::<1024>::new(addr);
 
         // Sync
         parser.push_bytes(&[addr as u8]);
@@ -366,8 +377,9 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet_with_max_len() {
+        let mut parser = PacketParser::<1024>::new();
+
         let addr = PacketAddress::Controller;
-        let mut parser = PacketParser::<1024>::new(addr);
 
         // Sync
         parser.push_bytes(&[addr as u8]);
@@ -391,8 +403,9 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet_with_too_big_len() {
+        let mut parser = PacketParser::<1024>::new();
+
         let addr = PacketAddress::Controller;
-        let mut parser = PacketParser::<1024>::new(addr);
 
         // Sync
         parser.push_bytes(&[0xc8]);
