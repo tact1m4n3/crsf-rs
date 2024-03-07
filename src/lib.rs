@@ -178,7 +178,7 @@ impl RawPacket {
 
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Snafu)]
-#[cfg_attr(feature = "defmt", defive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PacketError {
     #[snafu(display("Invalid length: {len}"))]
     InvalidLength { len: u8 },
