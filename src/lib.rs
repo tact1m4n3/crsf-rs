@@ -164,7 +164,7 @@ impl Packet {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RawPacket {
     data: [u8; MAX_PACKET_LENGTH],
     len: usize,
