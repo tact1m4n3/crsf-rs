@@ -112,51 +112,41 @@ impl Packet {
         }
 
         let raw_type = data[2];
-        match PacketType::from_u8(raw_type) {
-            Some(PacketType::RcChannelsPacked) => Ok(Packet::RcChannels(unsafe {
-                RcChannels::parse_unchecked(&data[3..])
-            })),
-            Some(PacketType::LinkStatistics) => Ok(Packet::LinkStatistics(unsafe {
-                LinkStatistics::parse_unchecked(&data[3..])
-            })),
-            _ => Err(PacketError::UnknownType { raw_type }),
-        }
+        let payload_data = &data[3..];
+        let packet = match PacketType::from_u8(raw_type) {
+            Some(PacketType::RcChannelsPacked) => Packet::RcChannels(
+                RcChannels::parse(payload_data)
+            ),
+            Some(PacketType::LinkStatistics) => Packet::LinkStatistics(
+                LinkStatistics::parse(payload_data)
+            ),
+            _ => return Err(PacketError::UnknownType { raw_type }),
+        };
+        Ok(packet)
     }
 
     pub fn into_raw(&self, addr: PacketAddress) -> RawPacket {
         let mut data: [u8; MAX_PACKET_LENGTH] = [0; MAX_PACKET_LENGTH];
 
         data[0] = addr as u8;
-        match self {
-            Packet::LinkStatistics(payload) => {
-                let len_byte = LinkStatistics::PAYLOAD_LENGTH + 2;
-                let len = PACKET_HEADER_LENGTH + len_byte as usize;
-                data[1] = len_byte;
 
-                data[2] = PacketType::LinkStatistics as u8;
+        let payload = match self {
+            Packet::LinkStatistics(payload) => payload as &dyn Payload,
+            Packet::RcChannels(payload) => payload as &dyn Payload,
+        };
 
-                unsafe { payload.write_unchecked(&mut data[3..]) }
+        let len_byte = payload.len() + 2;
+        let len = PACKET_HEADER_LENGTH + len_byte as usize;
+        data[1] = len_byte;
 
-                let checksum_idx = len - 1;
-                data[checksum_idx] = Self::calculate_checksum(&data[2..checksum_idx]);
+        data[2] = payload.packet_type() as u8;
 
-                RawPacket { data, len }
-            }
-            Packet::RcChannels(payload) => {
-                let len_byte = RcChannels::PAYLOAD_LENGTH + 2;
-                let len = PACKET_HEADER_LENGTH + len_byte as usize;
-                data[1] = len_byte;
+        payload.dump(&mut data[3..]);
 
-                data[2] = PacketType::RcChannelsPacked as u8;
+        let checksum_idx = len - 1;
+        data[checksum_idx] = Self::calculate_checksum(&data[2..checksum_idx]);
 
-                unsafe { payload.write_unchecked(&mut data[3..]) }
-
-                let checksum_idx = len - 1;
-                data[checksum_idx] = Self::calculate_checksum(&data[2..checksum_idx]);
-
-                RawPacket { data, len }
-            }
-        }
+        RawPacket { data, len }
     }
 
     fn calculate_checksum(data: &[u8]) -> u8 {
@@ -271,6 +261,7 @@ impl PacketType {
 
 #[cfg(test)]
 mod tests {
+    use crate::LinkStatistics;
     use crate::Packet;
     use crate::PacketAddress;
 
@@ -428,5 +419,51 @@ mod tests {
         if let Packet::RcChannels(RcChannels(channels2)) = packet2 {
             assert_eq!(channels, channels2);
         }
+    }
+
+    #[test]
+    fn test_rc_channels_packet_into_raw() {
+        let channels: [u16; 16] = [0xffff; 16];
+        let packet = Packet::RcChannels(RcChannels(channels));
+
+        let raw_packet = packet.into_raw(PacketAddress::Transmitter);
+        let mut expected_data: [u8; 26] = [0xff; 26];
+        expected_data[0] = 0xee;
+        expected_data[1] = 24;
+        expected_data[2] = 0x16;
+        expected_data[25] = 143;
+        assert_eq!(
+            raw_packet.data(),
+            &expected_data
+        )
+    }
+
+    #[test]
+    fn test_link_statistics_packet_into_raw() {
+        let packet = Packet::LinkStatistics(LinkStatistics {
+            uplink_rssi_1: 16,
+            uplink_rssi_2: 19,
+            uplink_link_quality: 99,
+            uplink_snr: -105,
+            active_antenna: 1,
+            rf_mode: 2,
+            uplink_tx_power: 3,
+            downlink_rssi: 8,
+            downlink_link_quality: 88,
+            downlink_snr: -108,
+        });
+
+        let raw_packet = packet.into_raw(PacketAddress::Controller);
+        let expected_data = [
+            0xc8,
+            12,
+            0x14,
+            16, 19, 99, 151, 1, 2, 3, 8, 88, 148,
+            252,
+        ];
+        assert_eq!(
+            raw_packet.data(),
+            &expected_data
+        )
     }
 }
