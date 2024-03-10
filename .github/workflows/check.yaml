@@ -1,0 +1,39 @@
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+
+name: Build, lint and test
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout sources
+      uses: actions/checkout@v4
+
+    - name: Install stable Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install system dependencies
+      run: sudo apt-get install libudev-dev
+
+    - run: cargo test --all-features
+
+  lint:
+    name: Run Linters
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout sources
+      uses: actions/checkout@v4
+
+    - name: Install stable Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+
+    - name: Run cargo clippy
+      run: cargo clippy -- -D warnings
