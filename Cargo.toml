@@ -1,7 +1,7 @@
 [package]
 name = "crsf"
 edition = "2021"
-version = "1.0.1"
+version = "2.0.0"
 authors = ["Dicu Tudor <tudor@dicu.org>"]
 license = "MIT"
 description = "This crate provides a #[no_std] parser for the crossfire protocol."
