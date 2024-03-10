@@ -1,3 +1,5 @@
+use crate::{Payload, PacketType};
+
 #[derive(Clone, Debug)]
 pub struct LinkStatistics {
     pub uplink_rssi_1: u8,
@@ -15,7 +17,7 @@ pub struct LinkStatistics {
 impl LinkStatistics {
     pub(crate) const PAYLOAD_LENGTH: u8 = 10;
 
-    pub(crate) unsafe fn parse_unchecked(data: &[u8]) -> Self {
+    pub(crate) fn parse(data: &[u8]) -> Self {
         Self {
             uplink_rssi_1: data[0],
             uplink_rssi_2: data[1],
@@ -29,8 +31,14 @@ impl LinkStatistics {
             downlink_snr: data[9] as i8,
         }
     }
+}
 
-    pub(crate) unsafe fn write_unchecked(&self, data: &mut [u8]) {
+impl Payload for LinkStatistics {
+    fn len(&self) -> u8 { Self::PAYLOAD_LENGTH }
+
+    fn packet_type(&self) -> PacketType { PacketType::LinkStatistics }
+
+    fn dump(&self, data: &mut [u8]) {
         data[0] = self.uplink_rssi_1;
         data[1] = self.uplink_rssi_2;
         data[2] = self.uplink_link_quality;
@@ -47,6 +55,7 @@ impl LinkStatistics {
 #[cfg(test)]
 mod tests {
     use crate::{LinkStatistics, MAX_PACKET_LENGTH};
+    use crate::packets::Payload;
 
     #[test]
     fn test_link_statistics_write_and_parse() {
@@ -64,7 +73,7 @@ mod tests {
         };
 
         let mut data = [0u8; MAX_PACKET_LENGTH];
-        unsafe { original.write_unchecked(&mut data) }
+        original.dump(&mut data);
 
         assert_eq!(data[0], 100_u8.to_le());
         assert_eq!(data[1], 98_u8.to_le());
@@ -77,7 +86,7 @@ mod tests {
         assert_eq!(data[8], 98_u8.to_le());
         assert_eq!(data[9], -(68_i8.to_le()) as u8);
 
-        let parsed = unsafe { LinkStatistics::parse_unchecked(&data) };
+        let parsed = LinkStatistics::parse(&data);
 
         assert_eq!(parsed.uplink_rssi_1, 100);
         assert_eq!(parsed.uplink_rssi_2, 98);

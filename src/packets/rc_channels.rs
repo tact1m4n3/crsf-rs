@@ -2,6 +2,8 @@ use bitfield::bitfield;
 
 use core::marker::PhantomData;
 
+use crate::{Payload, PacketType};
+
 #[derive(Clone, Debug)]
 pub struct RcChannels(pub [u16; 16]);
 
@@ -14,7 +16,7 @@ impl RcChannels {
 
     pub(crate) const PAYLOAD_LENGTH: u8 = 22;
 
-    pub(crate) unsafe fn parse_unchecked(data: &[u8]) -> Self {
+    pub(crate) fn parse(data: &[u8]) -> Self {
         let raw_channels = RcChannelsPacked(data);
 
         Self([
@@ -36,8 +38,14 @@ impl RcChannels {
             u16::from_le(raw_channels.ch15()),
         ])
     }
+}
 
-    pub(crate) unsafe fn write_unchecked(&self, data: &mut [u8]) {
+impl Payload for RcChannels {
+    fn len(&self) -> u8 { Self::PAYLOAD_LENGTH }
+
+    fn packet_type(&self) -> PacketType { PacketType::RcChannelsPacked }
+
+    fn dump(&self, data: &mut [u8]) {
         use bitfield::BitRangeMut;
 
         let mut raw_channels = RcChannelsPacked(data);
@@ -154,6 +162,7 @@ impl<M: ChannelMapper> core::ops::DerefMut for RcChannelsMapped<M> {
 #[cfg(test)]
 mod tests {
     use crate::{RcChannels, MAX_PACKET_LENGTH};
+    use crate::packets::Payload;
 
     #[test]
     fn test_rc_channels_write_and_parse() {
@@ -163,9 +172,9 @@ mod tests {
         }
 
         let mut data = [0u8; MAX_PACKET_LENGTH];
-        unsafe { original.write_unchecked(&mut data) }
+        original.dump(&mut data);
 
-        let parsed = unsafe { RcChannels::parse_unchecked(&data) };
+        let parsed = RcChannels::parse(&data);
         for i in 0..16 {
             assert_eq!(parsed[i], i as u16 * 10);
         }
