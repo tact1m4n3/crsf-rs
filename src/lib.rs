@@ -271,6 +271,7 @@ impl PacketType {
 
 #[cfg(test)]
 mod tests {
+    use crate::LinkStatistics;
     use crate::Packet;
     use crate::PacketAddress;
 
@@ -428,5 +429,51 @@ mod tests {
         if let Packet::RcChannels(RcChannels(channels2)) = packet2 {
             assert_eq!(channels, channels2);
         }
+    }
+
+    #[test]
+    fn test_rc_channels_packet_into_raw() {
+        let channels: [u16; 16] = [0xffff; 16];
+        let packet = Packet::RcChannels(RcChannels(channels));
+
+        let raw_packet = packet.into_raw(PacketAddress::Transmitter);
+        let mut expected_data: [u8; 26] = [0xff; 26];
+        expected_data[0] = 0xee;
+        expected_data[1] = 24;
+        expected_data[2] = 0x16;
+        expected_data[25] = 143;
+        assert_eq!(
+            raw_packet.data(),
+            &expected_data
+        )
+    }
+
+    #[test]
+    fn test_link_statistics_packet_into_raw() {
+        let packet = Packet::LinkStatistics(LinkStatistics {
+            uplink_rssi_1: 16,
+            uplink_rssi_2: 19,
+            uplink_link_quality: 99,
+            uplink_snr: -105,
+            active_antenna: 1,
+            rf_mode: 2,
+            uplink_tx_power: 3,
+            downlink_rssi: 8,
+            downlink_link_quality: 88,
+            downlink_snr: -108,
+        });
+
+        let raw_packet = packet.into_raw(PacketAddress::Controller);
+        let expected_data = [
+            0xc8,
+            12,
+            0x14,
+            16, 19, 99, 151, 1, 2, 3, 8, 88, 148,
+            252,
+        ];
+        assert_eq!(
+            raw_packet.data(),
+            &expected_data
+        )
     }
 }
