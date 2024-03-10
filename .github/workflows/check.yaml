@@ -18,6 +18,8 @@ jobs:
     - name: Install stable Rust toolchain
       uses: dtolnay/rust-toolchain@stable
 
+    - uses: Swatinem/rust-cache@v2
+
     - name: Install system dependencies
       run: sudo apt-get install libudev-dev
 
@@ -34,6 +36,8 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy
+
+    - uses: Swatinem/rust-cache@v2
 
     - name: Run cargo clippy
       run: cargo clippy -- -D warnings
