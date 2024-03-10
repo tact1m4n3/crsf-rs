@@ -2,7 +2,7 @@ use bitfield::bitfield;
 
 use core::marker::PhantomData;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RcChannels(pub [u16; 16]);
 
 impl RcChannels {

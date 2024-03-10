@@ -92,7 +92,7 @@ impl<const C: usize> PacketParser<C> {
 }
 
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Packet {
     LinkStatistics(LinkStatistics),
     RcChannels(RcChannels),

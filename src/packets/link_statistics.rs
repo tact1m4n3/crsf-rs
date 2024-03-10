@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LinkStatistics {
     pub uplink_rssi_1: u8,
     pub uplink_rssi_2: u8,
