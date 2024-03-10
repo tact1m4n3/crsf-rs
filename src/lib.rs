@@ -91,6 +91,7 @@ impl<const C: usize> PacketParser<C> {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum Packet {
     LinkStatistics(LinkStatistics),
@@ -188,6 +189,7 @@ pub enum PacketError {
     ChecksumMismatch { expected: u8, actual: u8 },
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PacketAddress {
@@ -209,6 +211,7 @@ impl PacketAddress {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PacketType {
@@ -397,8 +400,6 @@ mod tests {
     #[test]
     fn test_parse_next_packet_with_too_big_len() {
         let mut parser = PacketParser::<1024>::new();
-
-        let addr = PacketAddress::Controller;
 
         // Sync
         parser.push_bytes(&[0xc8]);

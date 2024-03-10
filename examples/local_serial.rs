@@ -24,6 +24,7 @@ fn main() {
                             Packet::RcChannels(channels) => {
                                 println!("{:?}", channels);
                             }
+                            _ => {}
                         }
                     }
                 }
