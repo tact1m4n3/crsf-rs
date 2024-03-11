@@ -11,7 +11,7 @@
 //! // Len
 //! parser.push_bytes(&[24]);
 //! // Type
-//! parser.push_bytes(&[PacketType::RcChannelsPacket as u8]);
+//! parser.push_bytes(&[PacketType::RcChannelsPacked as u8]);
 //! // Payload
 //! parser.push_bytes(&[0; 22]);
 //! // Checksum
@@ -23,7 +23,7 @@
 //! ```
 //! ### Packet Construction
 //! ```rust
-//! use crsf::{Packet, RcChannels};
+//! use crsf::{Packet, PacketAddress, RcChannels};
 //!
 //! let channels: [u16; 16] = [0xffff; 16];
 //! let packet = Packet::RcChannels(RcChannels(channels));
