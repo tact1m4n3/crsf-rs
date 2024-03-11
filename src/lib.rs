@@ -1,4 +1,4 @@
-//! This crate implements a #[no_std] crsf packet parser in Rust.
+//! This crate provides a #\[no_std\] parser for the crossfire protocol.
 //! # Usage
 //! ### Packet Parsing
 //! ```rust
