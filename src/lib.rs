@@ -1,4 +1,38 @@
+//! This crate implements a #[no_std] crsf packet parser in Rust.
+//! # Usage
+//! ### Packet Parsing
+//! ```rust
+//! use crsf::{PacketParser, PacketAddress, PacketType};
+//!
+//! let mut parser = PacketParser::<1024>::new();
+//!
+//! // Sync
+//! parser.push_bytes(&[PacketAddress::Controller as u8]);
+//! // Len
+//! parser.push_bytes(&[24]);
+//! // Type
+//! parser.push_bytes(&[PacketType::RcChannelsPacket as u8]);
+//! // Payload
+//! parser.push_bytes(&[0; 22]);
+//! // Checksum
+//! parser.push_bytes(&[239]);
+//!
+//! while let Some(Ok((dest, packet))) = parser.next_packet() {
+//!     println!("{:?} {:?}", dest, packet);
+//! }
+//! ```
+//! ### Packet Construction
+//! ```rust
+//! use crsf::{Packet, RcChannels};
+//!
+//! let channels: [u16; 16] = [0xffff; 16];
+//! let packet = Packet::RcChannels(RcChannels(channels));
+//! let raw_packet = packet.into_raw(PacketAddress::Transmitter);
+//! println!("{:?}", raw_packet.data());
+//! ```
+
 #![no_std]
+// #![warn(missing_docs)]
 
 use crc::{Crc, CRC_8_DVB_S2};
 #[cfg(feature = "defmt")]
@@ -12,9 +46,12 @@ pub use packets::*;
 mod buffer;
 mod packets;
 
+/// Max crsf packet length
 pub const MAX_PACKET_LENGTH: usize = 64;
+/// Crsf packet header length
 pub const PACKET_HEADER_LENGTH: usize = 2;
 
+/// Struct for parsing packets
 pub struct PacketParser<const C: usize> {
     buf: CircularBuffer<C>,
 }
@@ -25,22 +62,26 @@ impl<const C: usize> PacketParser<C> {
     // Number of bytes of packet type, payload and checksum
     const MAX_DATA_LENGTH: u8 = MAX_PACKET_LENGTH as u8 - Self::MIN_DATA_LENGTH;
 
+    /// Creates a new PacketParser struct
     pub const fn new() -> Self {
         Self {
             buf: CircularBuffer::new(),
         }
     }
 
+    /// Clears the buffer
     pub fn clear(&mut self) {
         self.buf.clear();
     }
 
+    /// Pushes the given bytes into the buffer
     pub fn push_bytes(&mut self, bytes: &[u8]) {
         bytes.iter().for_each(|&val| {
             self.buf.push_back(val);
         });
     }
 
+    /// Reads from the buffer the next packet without parsing it's payload
     pub fn next_raw_packet(&mut self) -> Option<Result<RawPacket, PacketError>> {
         self.sync();
 
@@ -69,13 +110,14 @@ impl<const C: usize> PacketParser<C> {
         Some(Ok(RawPacket { data, len }))
     }
 
+    /// Reads from the buffer the next packet
     pub fn next_packet(&mut self) -> Option<Result<(PacketAddress, Packet), PacketError>> {
         self.next_raw_packet().map(|raw_packet| match raw_packet {
             Ok(raw_packet) => {
                 let destination = PacketAddress::from_u8(raw_packet.data[0]).unwrap();
                 let packet = Packet::from_raw(&raw_packet)?;
                 Ok((destination, packet))
-            },
+            }
             Err(err) => Err(err),
         })
     }
@@ -91,14 +133,18 @@ impl<const C: usize> PacketParser<C> {
     }
 }
 
+/// Enum representing different kinds of packets
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum Packet {
+    /// Enum variant for the LinkStatistics packet type
     LinkStatistics(LinkStatistics),
+    /// Enum variant for the RcChannelsPacked packet type
     RcChannels(RcChannels),
 }
 
 impl Packet {
+    /// Creates a packet from a raw packet
     pub fn from_raw(raw_packet: &RawPacket) -> Result<Self, PacketError> {
         let data = raw_packet.data();
 
@@ -114,17 +160,18 @@ impl Packet {
         let raw_type = data[2];
         let payload_data = &data[3..];
         let packet = match PacketType::from_u8(raw_type) {
-            Some(PacketType::RcChannelsPacked) => Packet::RcChannels(
-                RcChannels::parse(payload_data)
-            ),
-            Some(PacketType::LinkStatistics) => Packet::LinkStatistics(
-                LinkStatistics::parse(payload_data)
-            ),
+            Some(PacketType::RcChannelsPacked) => {
+                Packet::RcChannels(RcChannels::parse(payload_data))
+            }
+            Some(PacketType::LinkStatistics) => {
+                Packet::LinkStatistics(LinkStatistics::parse(payload_data))
+            }
             _ => return Err(PacketError::UnknownType { raw_type }),
         };
         Ok(packet)
     }
 
+    /// Creates a raw packet from a packet
     pub fn into_raw(&self, addr: PacketAddress) -> RawPacket {
         let mut data: [u8; MAX_PACKET_LENGTH] = [0; MAX_PACKET_LENGTH];
 
@@ -155,6 +202,7 @@ impl Packet {
     }
 }
 
+/// Struct for storing raw packet data
 #[derive(Clone, Debug)]
 pub struct RawPacket {
     data: [u8; MAX_PACKET_LENGTH],
@@ -162,23 +210,29 @@ pub struct RawPacket {
 }
 
 impl RawPacket {
+    /// Returns the raw data
     pub fn data(&self) -> &[u8] {
         &self.data[..self.len]
     }
 }
 
+/// Enum representing packet errors
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Snafu)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PacketError {
+    /// Error for packets with an invalid length
     #[snafu(display("Invalid length: {len}"))]
     InvalidLength { len: u8 },
+    /// Error for packets with an unknown type
     #[snafu(display("Unknown type: {raw_type:#04x}"))]
     UnknownType { raw_type: u8 },
+    /// Error for packets with an invalid checksum
     #[snafu(display("Checksum mismatch: expected {expected:#04x} but was {actual:#04x}"))]
     ChecksumMismatch { expected: u8, actual: u8 },
 }
 
+/// Enum representing packet addresses
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -201,6 +255,7 @@ impl PacketAddress {
     }
 }
 
+/// Enum representing packet types
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -432,10 +487,7 @@ mod tests {
         expected_data[1] = 24;
         expected_data[2] = 0x16;
         expected_data[25] = 143;
-        assert_eq!(
-            raw_packet.data(),
-            &expected_data
-        )
+        assert_eq!(raw_packet.data(), &expected_data)
     }
 
     #[test]
@@ -454,16 +506,7 @@ mod tests {
         });
 
         let raw_packet = packet.into_raw(PacketAddress::Controller);
-        let expected_data = [
-            0xc8,
-            12,
-            0x14,
-            16, 19, 99, 151, 1, 2, 3, 8, 88, 148,
-            252,
-        ];
-        assert_eq!(
-            raw_packet.data(),
-            &expected_data
-        )
+        let expected_data = [0xc8, 12, 0x14, 16, 19, 99, 151, 1, 2, 3, 8, 88, 148, 252];
+        assert_eq!(raw_packet.data(), &expected_data)
     }
 }

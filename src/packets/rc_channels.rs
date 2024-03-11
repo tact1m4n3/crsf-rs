@@ -2,16 +2,22 @@ use bitfield::bitfield;
 
 use core::marker::PhantomData;
 
-use crate::{Payload, PacketType};
+use crate::{PacketType, Payload};
 
+/// Struct for storing RcChannelsPacked packet data
 #[derive(Clone, Debug)]
 pub struct RcChannels(pub [u16; 16]);
 
 impl RcChannels {
+    /// Minimum channel value
     pub const CHANNEL_VALUE_MIN: u16 = 172;
+    /// Channel value coresponding to 1000 in betaflight
     pub const CHANNEL_VALUE_1000: u16 = 191;
+    /// Middle channel value
     pub const CHANNEL_VALUE_MID: u16 = 992;
+    /// Channel value coresponding to 2000 in betaflight
     pub const CHANNEL_VALUE_2000: u16 = 1792;
+    /// Max channel value
     pub const CHANNEL_VALUE_MAX: u16 = 1811;
 
     pub(crate) const PAYLOAD_LENGTH: u8 = 22;
@@ -41,9 +47,13 @@ impl RcChannels {
 }
 
 impl Payload for RcChannels {
-    fn len(&self) -> u8 { Self::PAYLOAD_LENGTH }
+    fn len(&self) -> u8 {
+        Self::PAYLOAD_LENGTH
+    }
 
-    fn packet_type(&self) -> PacketType { PacketType::RcChannelsPacked }
+    fn packet_type(&self) -> PacketType {
+        PacketType::RcChannelsPacked
+    }
 
     fn dump(&self, data: &mut [u8]) {
         use bitfield::BitRangeMut;
@@ -90,11 +100,14 @@ bitfield! {
     ch15, _: 175, 165;
 }
 
+/// Trait for mapping channel values
 // THOUGHT: MAYBE ADD AN INVERSE MAPPING FUNCTION
 pub trait ChannelMapper {
+    /// Maps channel values
     fn map(val: u16) -> i32;
 }
 
+/// Struct for mapping channel values to the ones that betaflight uses(1000->2000)
 pub struct DefaultChannelsMapper;
 
 impl ChannelMapper for DefaultChannelsMapper {
@@ -106,12 +119,14 @@ impl ChannelMapper for DefaultChannelsMapper {
     }
 }
 
+/// Struct for mapping channels according to a ChannelMapper
 pub struct RcChannelsMapped<M: ChannelMapper> {
     channels: [i32; 16],
     _phantom: PhantomData<M>,
 }
 
 impl<M: ChannelMapper> RcChannelsMapped<M> {
+    /// Creates a new RcChannelsMapped struct
     pub fn new(channels: &RcChannels) -> Self {
         Self {
             channels: [
@@ -161,8 +176,8 @@ impl<M: ChannelMapper> core::ops::DerefMut for RcChannelsMapped<M> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{RcChannels, MAX_PACKET_LENGTH};
     use crate::packets::Payload;
+    use crate::{RcChannels, MAX_PACKET_LENGTH};
 
     #[test]
     fn test_rc_channels_write_and_parse() {

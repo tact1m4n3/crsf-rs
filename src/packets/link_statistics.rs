@@ -1,5 +1,6 @@
 use crate::{Payload, PacketType};
 
+/// Struct for storing LinkStatistics packet data
 #[derive(Clone, Debug)]
 pub struct LinkStatistics {
     pub uplink_rssi_1: u8,
