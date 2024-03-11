@@ -103,8 +103,8 @@ impl<const C: usize> PacketParser<C> {
         }
 
         let mut data: [u8; MAX_PACKET_LENGTH] = [0; MAX_PACKET_LENGTH];
-        for i in 0..len {
-            data[i] = self.buf.pop_front().unwrap_or(0);
+        for c in data.iter_mut() {
+            *c = self.buf.pop_front().unwrap_or(0);
         }
 
         Some(Ok(RawPacket { data, len }))
