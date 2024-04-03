@@ -51,7 +51,7 @@ pub const MAX_PACKET_LENGTH: usize = 64;
 /// Crsf packet header length
 pub const PACKET_HEADER_LENGTH: usize = 2;
 
-/// Struct for parsing packets
+/// Crossfire packet parser
 pub struct PacketParser<const C: usize> {
     buf: CircularBuffer<C>,
 }
@@ -133,13 +133,11 @@ impl<const C: usize> PacketParser<C> {
     }
 }
 
-/// Enum representing different kinds of packets
+/// Represents different kinds of packets
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum Packet {
-    /// Enum variant for the LinkStatistics packet type
     LinkStatistics(LinkStatistics),
-    /// Enum variant for the RcChannelsPacked packet type
     RcChannels(RcChannels),
 }
 
@@ -202,7 +200,7 @@ impl Packet {
     }
 }
 
-/// Struct for storing raw packet data
+/// Stores raw packet data
 #[derive(Clone, Debug)]
 pub struct RawPacket {
     data: [u8; MAX_PACKET_LENGTH],
@@ -216,23 +214,20 @@ impl RawPacket {
     }
 }
 
-/// Enum representing packet errors
+/// Represents packet errors
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Snafu)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PacketError {
-    /// Error for packets with an invalid length
     #[snafu(display("Invalid length: {len}"))]
     InvalidLength { len: u8 },
-    /// Error for packets with an unknown type
     #[snafu(display("Unknown type: {raw_type:#04x}"))]
     UnknownType { raw_type: u8 },
-    /// Error for packets with an invalid checksum
     #[snafu(display("Checksum mismatch: expected {expected:#04x} but was {actual:#04x}"))]
     ChecksumMismatch { expected: u8, actual: u8 },
 }
 
-/// Enum representing packet addresses
+/// Represents packet addresses
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -255,7 +250,7 @@ impl PacketAddress {
     }
 }
 
-/// Enum representing packet types
+/// Crossfire packet types
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

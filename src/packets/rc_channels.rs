@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 
 use crate::{PacketType, Payload};
 
-/// Struct for storing RcChannelsPacked packet data
+/// Stores RcChannelsPacked packet data
 #[derive(Clone, Debug)]
 pub struct RcChannels(pub [u16; 16]);
 
@@ -107,7 +107,7 @@ pub trait ChannelMapper {
     fn map(val: u16) -> i32;
 }
 
-/// Struct for mapping channel values to the ones that betaflight uses(1000->2000)
+/// Maps channel values to the ones that betaflight uses(1000->2000)
 pub struct DefaultChannelsMapper;
 
 impl ChannelMapper for DefaultChannelsMapper {
@@ -119,7 +119,7 @@ impl ChannelMapper for DefaultChannelsMapper {
     }
 }
 
-/// Struct for mapping channels according to a ChannelMapper
+/// Maps channels according to a ChannelMapper
 pub struct RcChannelsMapped<M: ChannelMapper> {
     channels: [i32; 16],
     _phantom: PhantomData<M>,
