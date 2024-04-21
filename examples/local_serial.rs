@@ -1,6 +1,6 @@
-use std::{env, io, time::Duration};
+use std::{env, fmt::write, io, time::Duration};
 
-use crsf::{Packet, PacketParser};
+use crsf::{Packet, PacketReader};
 
 fn main() {
     let path = env::args().nth(1).expect("no serial port supplied");
@@ -10,22 +10,27 @@ fn main() {
         .expect("failed to open serial port");
 
     let mut buf = [0; 1024];
-    let mut parser = PacketParser::<1024>::new();
+    let mut reader = PacketReader::new();
     loop {
         match port.read(buf.as_mut_slice()) {
             Ok(n) => {
                 if n > 0 {
-                    parser.push_bytes(&buf[..n]);
-                    while let Some(Ok((_, packet))) = parser.next_packet() {
-                        match packet {
-                            Packet::LinkStatistics(link_statistics) => {
-                                println!("{:?}", link_statistics);
-                            }
-                            Packet::RcChannels(channels) => {
-                                println!("{:?}", channels);
-                            }
-                            _ => {}
-                        }
+                    let mut remaining = reader.push_bytes(&buf[..n]);
+                    loop {
+                        match reader.parse_packet() {
+                            Some(Ok((_, packet))) => match packet {
+                                Packet::LinkStatistics(link_statistics) => {
+                                    println!("{:?}", link_statistics);
+                                }
+                                Packet::RcChannels(channels) => {
+                                    println!("{:?}", channels);
+                                }
+                                _ => {}
+                            },
+                            Some(Err(err)) => eprintln!("{err}"),
+                            None => break,
+                        };
+                        remaining = reader.push_bytes(remaining);
                     }
                 }
             }

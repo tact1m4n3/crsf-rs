@@ -55,7 +55,7 @@ impl Payload for LinkStatistics {
 
 #[cfg(test)]
 mod tests {
-    use crate::{LinkStatistics, MAX_PACKET_LENGTH};
+    use crate::{LinkStatistics, Packet};
     use crate::packets::Payload;
 
     #[test]
@@ -73,7 +73,7 @@ mod tests {
             downlink_snr: -68,
         };
 
-        let mut data = [0u8; MAX_PACKET_LENGTH];
+        let mut data = [0u8; Packet::MAX_LENGTH];
         original.dump(&mut data);
 
         assert_eq!(data[0], 100_u8.to_le());
