@@ -1,4 +1,4 @@
-use std::{env, fmt::write, io, time::Duration};
+use std::{env, io, time::Duration};
 
 use crsf::{Packet, PacketReader};
 
@@ -15,10 +15,10 @@ fn main() {
         match port.read(buf.as_mut_slice()) {
             Ok(n) => {
                 if n > 0 {
-                    let mut remaining = reader.push_bytes(&buf[..n]);
-                    loop {
-                        match reader.parse_packet() {
-                            Some(Ok((_, packet))) => match packet {
+                    let mut remaining = &buf[..n];
+                    while let (Some(raw_packet), consumed) = reader.push_bytes(remaining) {
+                        match Packet::parse(raw_packet) {
+                            Ok(packet) => match packet {
                                 Packet::LinkStatistics(link_statistics) => {
                                     println!("{:?}", link_statistics);
                                 }
@@ -27,10 +27,10 @@ fn main() {
                                 }
                                 _ => {}
                             },
-                            Some(Err(err)) => eprintln!("{err}"),
-                            None => break,
+                            Err(err) => eprintln!("{err}"),
                         };
-                        remaining = reader.push_bytes(remaining);
+
+                        remaining = &remaining[consumed..];
                     }
                 }
             }

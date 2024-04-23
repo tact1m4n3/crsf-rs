@@ -1,7 +1,5 @@
 use bitfield::bitfield;
 
-use core::marker::PhantomData;
-
 use crate::{PacketType, Payload};
 
 /// Stores RcChannelsPacked packet data
@@ -98,80 +96,6 @@ bitfield! {
     ch13, _: 153, 143;
     ch14, _: 164, 154;
     ch15, _: 175, 165;
-}
-
-/// Trait for mapping channel values
-// THOUGHT: MAYBE ADD AN INVERSE MAPPING FUNCTION
-pub trait ChannelMapper {
-    /// Maps channel values
-    fn map(val: u16) -> i32;
-}
-
-/// Maps channel values to the ones that betaflight uses(1000->2000)
-pub struct DefaultChannelsMapper;
-
-impl ChannelMapper for DefaultChannelsMapper {
-    #[rustfmt::skip]
-    fn map(val: u16) -> i32 {
-        1000
-            + (val.saturating_sub(RcChannels::CHANNEL_VALUE_1000) as i32 * (2000 - 1000) * 2
-            / (RcChannels::CHANNEL_VALUE_2000 - RcChannels::CHANNEL_VALUE_1000) as i32 + 1) / 2
-    }
-}
-
-/// Maps channels according to a ChannelMapper
-pub struct RcChannelsMapped<M: ChannelMapper> {
-    channels: [i32; 16],
-    _phantom: PhantomData<M>,
-}
-
-impl<M: ChannelMapper> RcChannelsMapped<M> {
-    /// Creates a new RcChannelsMapped struct
-    pub fn new(channels: &RcChannels) -> Self {
-        Self {
-            channels: [
-                M::map(channels.0[0]),
-                M::map(channels.0[1]),
-                M::map(channels.0[2]),
-                M::map(channels.0[3]),
-                M::map(channels.0[4]),
-                M::map(channels.0[5]),
-                M::map(channels.0[6]),
-                M::map(channels.0[7]),
-                M::map(channels.0[8]),
-                M::map(channels.0[9]),
-                M::map(channels.0[10]),
-                M::map(channels.0[11]),
-                M::map(channels.0[12]),
-                M::map(channels.0[13]),
-                M::map(channels.0[14]),
-                M::map(channels.0[15]),
-            ],
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<M: ChannelMapper> core::fmt::Debug for RcChannelsMapped<M> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("RcChannelsMapped")
-            .field(&self.channels)
-            .finish()
-    }
-}
-
-impl<M: ChannelMapper> core::ops::Deref for RcChannelsMapped<M> {
-    type Target = [i32; 16];
-
-    fn deref(&self) -> &Self::Target {
-        &self.channels
-    }
-}
-
-impl<M: ChannelMapper> core::ops::DerefMut for RcChannelsMapped<M> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.channels
-    }
 }
 
 #[cfg(test)]
