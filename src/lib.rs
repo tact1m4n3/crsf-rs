@@ -33,6 +33,7 @@ use snafu::prelude::*;
 pub use packets::*;
 
 mod packets;
+mod to_array;
 
 /// Crsf packet reader
 pub struct PacketReader {
@@ -473,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_rc_channels_packet_dump() {
-        let channels: [u16; 16] = [0xffff; 16];
+        let channels: [u16; 16] = [0x7FF; 16];
         let packet = Packet::RcChannels(RcChannels(channels));
 
         let mut buf = [0u8; Packet::MAX_LENGTH];
