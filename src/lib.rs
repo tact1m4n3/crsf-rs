@@ -30,6 +30,9 @@ use crc::{Crc, CRC_8_DVB_S2};
 use defmt;
 use snafu::prelude::*;
 
+/// Used to calculate the CRC8 checksum
+static CRC8: Crc<u8> = Crc::<u8>::new(&CRC_8_DVB_S2);
+
 pub use packets::*;
 
 mod packets;
@@ -151,7 +154,7 @@ impl Packet {
         let len = raw_packet.len;
 
         let checksum_idx = len - 1;
-        let checksum = Self::calculate_checksum(&buf[2..checksum_idx]);
+        let checksum = CRC8.checksum(&buf[2..checksum_idx]);
         if checksum != buf[checksum_idx] {
             return Err(ParseError::ChecksumMismatch {
                 expected: checksum,
@@ -208,14 +211,9 @@ impl Packet {
         let payload_start = if typ.is_extended() { 5 } else { 3 };
         let checksum_idx = len - 1;
         payload.dump(&mut buf[payload_start..checksum_idx]);
-        buf[checksum_idx] = Self::calculate_checksum(&buf[2..checksum_idx]);
+        buf[checksum_idx] = CRC8.checksum(&buf[2..checksum_idx]);
 
         Ok(len)
-    }
-
-    fn calculate_checksum(data: &[u8]) -> u8 {
-        let crc8_alg = Crc::<u8>::new(&CRC_8_DVB_S2);
-        crc8_alg.checksum(data)
     }
 }
 
