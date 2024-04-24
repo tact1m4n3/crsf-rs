@@ -9,7 +9,6 @@ repository = "https://github.com/tact1m4n3/crsf-rs"
 documentation = "https://docs.rs/crsf"
 
 [dependencies]
-bitfield = "0.15"
 crc = "3.2"
 defmt = { version = "0.3.6", optional = true }
 snafu = { version = "0.8.2", default-features = false }
