@@ -25,6 +25,8 @@
 
 #![no_std]
 
+// TODO: top level crate packet reader examples redo
+
 use crc::{Crc, CRC_8_DVB_S2};
 #[cfg(feature = "defmt")]
 use defmt;
@@ -32,6 +34,7 @@ use num_enum::TryFromPrimitive;
 use snafu::prelude::*;
 
 /// Used to calculate the CRC8 checksum
+#[link_section = ".data"]
 static CRC8: Crc<u8> = Crc::<u8>::new(&CRC_8_DVB_S2);
 
 pub use packets::*;
@@ -39,7 +42,7 @@ pub use packets::*;
 mod packets;
 mod to_array;
 
-/// Crsf packet reader
+/// Represents a packet reader
 pub struct PacketReader {
     buf: [u8; Packet::MAX_LENGTH],
     state: ReadState,
@@ -112,7 +115,7 @@ impl PacketReader {
     }
 }
 
-/// Raw packet (not parsed)
+/// Represents a raw packet (not parsed)
 #[derive(Clone, Copy, Debug)]
 pub struct RawPacket<'a> {
     buf: &'a [u8; Packet::MAX_LENGTH],
@@ -128,7 +131,7 @@ impl<'a> RawPacket<'a> {
     // TODO: maybe add methods for getting the addr etc
 }
 
-/// Crsf parsed packet
+/// Represents a parsed packet
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum Packet {
@@ -146,7 +149,7 @@ impl Packet {
     pub fn parse(raw_packet: RawPacket) -> Result<Packet, ParseError> {
         // TODO: use more constants instead of literals
 
-        // not using raw_packet.as_slice() for the compiler to optimize out bounds checking
+        // not using raw_packet.as_slice() for the compiler to remove out of bounds checking
         let buf = raw_packet.buf;
         let len = raw_packet.len;
 
@@ -214,7 +217,7 @@ impl Packet {
     }
 }
 
-/// Packet parse errors
+/// Represents packet parsing errors
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Snafu)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -227,17 +230,17 @@ pub enum ParseError {
     ChecksumMismatch { expected: u8, actual: u8 },
 }
 
-/// Packet dump buffer to small error
+/// Represents a buffer too small error
 #[derive(Debug, PartialEq, Snafu)]
 #[snafu(display(
-    "Dump buffer to small: expected len of at least {expected} bytes, but got {actual} bytes"
+    "Dump buffer too small: expected len of at least {expected} bytes, but got {actual} bytes"
 ))]
 pub struct BufferLenError {
     expected: usize,
     actual: usize,
 }
 
-/// Crsf packet addresses
+/// Represents all CRSF packet addresses
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
@@ -248,7 +251,7 @@ pub enum PacketAddress {
     Receiver = 0xEC,
 }
 
-/// Crsf packet types
+/// Represents all CRSF packet types
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
@@ -283,7 +286,7 @@ impl PacketType {
     }
 }
 
-/// Represents a state machine of CRSF protocol
+/// Represents a state machine for reading a CRSF packet
 ///
 /// +---------------+   +---------------+   +---------+
 /// | WatingForSync |-->| WaitingForLen |-->| Reading |

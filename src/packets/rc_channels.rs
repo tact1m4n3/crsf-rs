@@ -3,7 +3,7 @@ use crate::{
     PacketType, Payload,
 };
 
-/// Stores RcChannelsPacked packet data
+/// Represents a RcChannelsPacked packet
 #[derive(Clone, Debug)]
 pub struct RcChannels(pub [u16; 16]);
 
