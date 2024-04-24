@@ -121,7 +121,7 @@ impl core::ops::DerefMut for RcChannels {
 #[cfg(test)]
 mod tests {
     use crate::packets::Payload;
-    use crate::{Packet, RcChannels};
+    use crate::{RcChannels, PACKET_MAX_LENGTH};
 
     #[test]
     fn test_rc_channels_write_and_parse() {
@@ -130,7 +130,7 @@ mod tests {
             original[i] = i as u16 * 10;
         }
 
-        let mut data = [0u8; Packet::MAX_LENGTH];
+        let mut data = [0u8; PACKET_MAX_LENGTH];
         original.dump(&mut data);
 
         let parsed = RcChannels::parse(&data);
