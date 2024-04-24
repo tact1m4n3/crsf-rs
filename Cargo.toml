@@ -11,6 +11,7 @@ documentation = "https://docs.rs/crsf"
 [dependencies]
 crc = "3.2"
 defmt = { version = "0.3.6", optional = true }
+num_enum = { version = "0.7.2", default-features = false }
 snafu = { version = "0.8.2", default-features = false }
 
 [dev-dependencies]

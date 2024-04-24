@@ -28,6 +28,7 @@
 use crc::{Crc, CRC_8_DVB_S2};
 #[cfg(feature = "defmt")]
 use defmt;
+use num_enum::TryFromPrimitive;
 use snafu::prelude::*;
 
 /// Used to calculate the CRC8 checksum
@@ -65,7 +66,7 @@ impl PacketReader {
             match self.state {
                 ReadState::WaitingForSync => {
                     while let Some(addr_byte) = reader.next() {
-                        if PacketAddress::from_u8(addr_byte).is_some() {
+                        if PacketAddress::try_from(addr_byte).is_ok() {
                             self.buf[0] = addr_byte;
                             self.state = ReadState::WaitingForLen;
                             break;
@@ -159,7 +160,7 @@ impl Packet {
         }
 
         let typ_byte = buf[2];
-        if let Some(typ) = PacketType::from_u8(typ_byte) {
+        if let Ok(typ) = PacketType::try_from(typ_byte) {
             let payload_data = if typ.is_extended() {
                 &buf[5..len]
             } else {
@@ -238,7 +239,7 @@ pub struct BufferLenError {
 
 /// Crsf packet addresses
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum PacketAddress {
     Transmitter = 0xEE,
@@ -247,21 +248,9 @@ pub enum PacketAddress {
     Receiver = 0xEC,
 }
 
-impl PacketAddress {
-    pub fn from_u8(val: u8) -> Option<Self> {
-        match val {
-            0xEE => Some(PacketAddress::Transmitter),
-            0xEA => Some(PacketAddress::Handset),
-            0xC8 => Some(PacketAddress::Controller),
-            0xEC => Some(PacketAddress::Receiver),
-            _ => None,
-        }
-    }
-}
-
 /// Crsf packet types
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum PacketType {
     Gps = 0x02,
@@ -289,34 +278,6 @@ pub enum PacketType {
 }
 
 impl PacketType {
-    pub fn from_u8(val: u8) -> Option<Self> {
-        match val {
-            0x02 => Some(PacketType::Gps),
-            0x07 => Some(PacketType::Vario),
-            0x08 => Some(PacketType::BatterySensor),
-            0x09 => Some(PacketType::BaroAltitude),
-            0x14 => Some(PacketType::LinkStatistics),
-            0x10 => Some(PacketType::OpenTxSync),
-            0x3A => Some(PacketType::RadioId),
-            0x16 => Some(PacketType::RcChannelsPacked),
-            0x1E => Some(PacketType::Altitude),
-            0x21 => Some(PacketType::FlightMode),
-            0x28 => Some(PacketType::DevicePing),
-            0x29 => Some(PacketType::DeviceInfo),
-            0x2B => Some(PacketType::ParameterSettingsEntry),
-            0x2C => Some(PacketType::ParameterRead),
-            0x2D => Some(PacketType::ParameterWrite),
-            0x32 => Some(PacketType::Command),
-            0x78 => Some(PacketType::KissRequest),
-            0x79 => Some(PacketType::KissResponse),
-            0x7A => Some(PacketType::MspRequest),
-            0x7B => Some(PacketType::MspResponse),
-            0x7C => Some(PacketType::MspWrite),
-            0x80 => Some(PacketType::ArdupilotResponse),
-            _ => None,
-        }
-    }
-
     pub fn is_extended(self) -> bool {
         self as u8 >= 0x28
     }
