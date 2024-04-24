@@ -60,12 +60,8 @@ impl PacketReader {
 
     /// Reads the first packet from the buffer
     pub fn push_bytes(&mut self, bytes: &[u8]) -> (Option<RawPacket>, usize) {
-        if matches!(self.state, ReadState::ReadyForParsing { .. }) {
-            self.state = ReadState::WaitingForSync;
-        }
-
         let mut reader = BytesReader::new(bytes);
-        loop {
+        let packet = loop {
             match self.state {
                 ReadState::WaitingForSync => {
                     while let Some(addr_byte) = reader.next() {
@@ -75,6 +71,7 @@ impl PacketReader {
                             break;
                         }
                     }
+                    continue;
                 }
                 ReadState::WaitingForLen => {
                     if let Some(len_byte) = reader.next() {
@@ -88,38 +85,36 @@ impl PacketReader {
                             }
                             _ => self.state = ReadState::WaitingForSync,
                         }
+                        continue;
                     }
                 }
-                ReadState::Reading { mut idx, len } => {
-                    let data = reader.next_n(len - idx);
-                    self.buf[idx..idx + data.len()].copy_from_slice(data);
-                    idx += data.len();
-                    if idx < len {
-                        self.state = ReadState::Reading { idx, len };
-                    } else {
-                        self.state = ReadState::ReadyForParsing { len };
+                ReadState::Reading { ref mut idx, len } => {
+                    let data = reader.next_n(len - *idx);
+                    self.buf[*idx..*idx + data.len()].copy_from_slice(data);
+                    *idx += data.len();
+                    if *idx >= len {
+                        self.state = ReadState::WaitingForSync;
+                        break Some(
+                            RawPacket {
+                                buf: &self.buf,
+                                len,
+                            }
+                        );
                     }
                 }
-                ReadState::ReadyForParsing { .. } => (),
             }
 
-            if let ReadState::ReadyForParsing { len } = self.state {
-                let raw_packet = RawPacket {
-                    buf: &self.buf,
-                    len,
-                };
-                break (Some(raw_packet), reader.consumed());
-            } else if reader.is_empty() {
-                break (None, reader.consumed());
-            }
-        }
+            break None;
+        };
+
+        (packet, reader.consumed())
     }
 }
 
 /// Raw packet (not parsed)
 #[derive(Clone, Copy, Debug)]
 pub struct RawPacket<'a> {
-    buf: &'a [u8; 64],
+    buf: &'a [u8; Packet::MAX_LENGTH],
     len: usize,
 }
 
@@ -327,11 +322,20 @@ impl PacketType {
     }
 }
 
+/// Represents a state machine of CRSF protocol
+///
+/// +---------------+   +---------------+   +---------+
+/// | WatingForSync |-->| WaitingForLen |-->| Reading |
+/// +---------------+   +---------------+   +---------+
+///         ^                   |                |
+///         |                   |                |
+///         +-------------------+                |
+///         +------------------------------------+
+///
 enum ReadState {
     WaitingForSync,
     WaitingForLen,
     Reading { idx: usize, len: usize },
-    ReadyForParsing { len: usize },
 }
 
 struct BytesReader<'a> {
@@ -342,10 +346,6 @@ struct BytesReader<'a> {
 impl<'a> BytesReader<'a> {
     fn new(buf: &'a [u8]) -> Self {
         Self { buf, idx: 0 }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.idx >= self.buf.len()
     }
 
     fn consumed(&self) -> usize {
@@ -417,6 +417,30 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn test_parse_full_packet() {
+        let mut reader = PacketReader::new();
+
+        let addr = PacketAddress::Controller;
+        let typ = PacketType::RcChannelsPacked;
+
+        let data = [
+            // Sync
+            addr as u8,
+            // Len
+            24,
+            // Type
+            typ as u8,
+            // Payload
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            // Checksum
+            239,
+        ];
+        assert!(matches!(
+            reader.push_bytes(&data).0.map(|raw_packet| Packet::parse(raw_packet)).expect("packet expected"),
+            Ok(Packet::RcChannels(RcChannels(channels))) if channels == [0; 16]
+        ));
+    }
     #[test]
     fn test_parse_next_packet_with_validation_error() {
         let mut reader = PacketReader::new();
