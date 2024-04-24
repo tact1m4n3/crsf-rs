@@ -6,14 +6,14 @@
 //!
 //! let mut reader = PacketReader::new();
 //!
-//! let addr = PacketAddress::Controller;
+//! let addr = PacketAddress::FlightController;
 //! let typ = PacketType::RcChannelsPacked;
 //! ```
 //! ### Packet Construction
 //! ```rust
 //! use crsf::{Packet, RcChannels, PacketAddress};
 //!
-//! let addr = PacketAddress::Controller;
+//! let addr = PacketAddress::FlightController;
 //! let channels: [u16; 16] = [0xffff; 16];
 //! let packet = Packet::RcChannels(RcChannels(channels));
 //!
@@ -112,6 +112,12 @@ impl PacketReader {
         };
 
         (packet, reader.consumed())
+    }
+}
+
+impl Default for PacketReader {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -245,10 +251,20 @@ pub struct BufferLenError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum PacketAddress {
-    Transmitter = 0xEE,
+    Broadcast = 0x00,
+    Usb = 0x10,
+    Bluetooth = 0x12,
+    TbsCorePnpPro = 0x80,
+    Reserved1 = 0x8A,
+    CurrentSensor = 0xC0,
+    Gps = 0xC2,
+    TbsBlackbox = 0xC4,
+    FlightController = 0xC8,
+    Reserved2 = 0xCA,
+    RaceTag = 0xCC,
     Handset = 0xEA,
-    Controller = 0xC8,
     Receiver = 0xEC,
+    Transmitter = 0xEE,
 }
 
 /// Represents all CRSF packet types
@@ -260,18 +276,22 @@ pub enum PacketType {
     Vario = 0x07,
     BatterySensor = 0x08,
     BaroAltitude = 0x09,
+    Heartbeat = 0x0B,
     LinkStatistics = 0x14,
-    OpenTxSync = 0x10,
-    RadioId = 0x3A,
     RcChannelsPacked = 0x16,
-    Altitude = 0x1E,
+    SubsetRcChannelsPacked = 0x17,
+    LinkRxId = 0x1C,
+    LinkTxId = 0x1D,
+    Attitude = 0x1E,
     FlightMode = 0x21,
     DevicePing = 0x28,
     DeviceInfo = 0x29,
     ParameterSettingsEntry = 0x2B,
     ParameterRead = 0x2C,
     ParameterWrite = 0x2D,
+    ElrsStatus = 0x2E,
     Command = 0x32,
+    RadioId = 0x3A,
     KissRequest = 0x78,
     KissResponse = 0x79,
     MspRequest = 0x7A,
@@ -363,7 +383,7 @@ mod tests {
     fn test_parse_next_packet() {
         let mut reader = PacketReader::new();
 
-        let addr = PacketAddress::Controller;
+        let addr = PacketAddress::FlightController;
         let typ = PacketType::RcChannelsPacked;
 
         // Sync
@@ -385,7 +405,7 @@ mod tests {
     fn test_parse_full_packet() {
         let mut reader = PacketReader::new();
 
-        let addr = PacketAddress::Controller;
+        let addr = PacketAddress::FlightController;
         let typ = PacketType::RcChannelsPacked;
 
         let data = [
@@ -409,7 +429,7 @@ mod tests {
     fn test_parse_next_packet_with_validation_error() {
         let mut reader = PacketReader::new();
 
-        let addr = PacketAddress::Controller;
+        let addr = PacketAddress::FlightController;
 
         // Sync
         reader.push_bytes(&[addr as u8]);
@@ -450,7 +470,7 @@ mod tests {
 
         let mut buf = [0u8; 10];
         assert_eq!(
-            packet.dump(&mut buf, PacketAddress::Controller),
+            packet.dump(&mut buf, PacketAddress::FlightController),
             Err(BufferLenError {
                 expected: 14,
                 actual: 10
@@ -489,7 +509,7 @@ mod tests {
         });
 
         let mut buf = [0u8; Packet::MAX_LENGTH];
-        let len = packet.dump(&mut buf, PacketAddress::Controller).unwrap();
+        let len = packet.dump(&mut buf, PacketAddress::FlightController).unwrap();
         let expected_data = [0xc8, 12, 0x14, 16, 19, 99, 151, 1, 2, 3, 8, 88, 148, 252];
         assert_eq!(&buf[..len], &expected_data)
     }
