@@ -1,6 +1,6 @@
 use std::{env, io, time::Duration};
 
-use crsf::{Packet, PacketReader};
+use crsf::{Packet, PacketPayload, PacketReader};
 
 fn main() {
     let path = env::args().nth(1).expect("no serial port supplied");
@@ -18,11 +18,11 @@ fn main() {
                     let mut remaining = &buf[..n];
                     while let (Some(raw_packet), consumed) = reader.push_bytes(remaining) {
                         match Packet::parse(raw_packet) {
-                            Ok(packet) => match packet {
-                                Packet::LinkStatistics(link_statistics) => {
+                            Ok(packet) => match packet.payload {
+                                PacketPayload::LinkStatistics(link_statistics) => {
                                     println!("{:?}", link_statistics);
                                 }
-                                Packet::RcChannels(channels) => {
+                                PacketPayload::RcChannels(channels) => {
                                     println!("{:?}", channels);
                                 }
                                 _ => {}
