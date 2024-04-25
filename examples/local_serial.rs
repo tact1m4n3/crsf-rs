@@ -10,7 +10,7 @@ fn main() {
         .expect("failed to open serial port");
 
     let mut buf = [0; 1024];
-    let mut reader = PacketReader::new();
+    let mut reader = PacketReader::default();
     loop {
         match port.read(buf.as_mut_slice()) {
             Ok(n) => {

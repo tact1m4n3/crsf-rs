@@ -4,7 +4,7 @@
 //! ```rust
 //! use crsf::{Packet, PacketReader, PacketAddress, PacketType};
 //!
-//! let mut reader = PacketReader::new();
+//! let mut reader = PacketReader::default();
 //! let data: &[&[u8]] = &[&[0xc8, 24, 0x16], &[0; 22], &[239]];
 //! for input_buf in data {
 //!     let mut buf: &[u8] = input_buf;
@@ -44,6 +44,7 @@
 
 // TODO: top level crate packet reader examples redo
 
+use bitflags::bitflags;
 use crc::{Crc, CRC_8_DVB_S2};
 #[cfg(feature = "defmt")]
 use defmt;
@@ -65,6 +66,14 @@ mod to_array;
 pub struct PacketReader {
     buf: Buf<{ Packet::MAX_LENGTH }>,
     state: ReadState,
+    addr_decoder: PacketAddressDecoder,
+}
+
+impl Default for PacketReader {
+    /// Creates a new `PacketReader` that expects flight controller address (0xC8) as a sync byte
+    fn default() -> Self {
+        Self::with_addresses(&[PacketAddress::FlightController])
+    }
 }
 
 impl PacketReader {
@@ -73,11 +82,12 @@ impl PacketReader {
     // Number of bytes of packet type, payload and checksum
     const MAX_DATA_LENGTH: u8 = Packet::MAX_LENGTH as u8 - Self::MIN_DATA_LENGTH;
 
-    /// Creates a new PacketReader struct
-    pub const fn new() -> Self {
+    /// Creates a new `PacketReader` that parses packets with specific addresses
+    pub const fn with_addresses(addrs: &[PacketAddress]) -> Self {
         Self {
             buf: Buf::new(),
             state: ReadState::WaitingForSync,
+            addr_decoder: PacketAddressDecoder::new(addrs),
         }
     }
 
@@ -96,7 +106,7 @@ impl PacketReader {
             match self.state {
                 ReadState::WaitingForSync => {
                     while let Some(addr_byte) = reader.next() {
-                        if let Ok(addr) = PacketAddress::try_from(addr_byte) {
+                        if let Some(addr) = self.addr_decoder.decode(addr_byte) {
                             self.buf.clear();
                             self.buf.push(addr_byte);
                             self.state = ReadState::WaitingForLen { addr };
@@ -144,12 +154,6 @@ impl PacketReader {
         };
 
         (packet, reader.consumed())
-    }
-}
-
-impl Default for PacketReader {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -317,6 +321,73 @@ pub enum PacketAddress {
     Transmitter = 0xEE,
 }
 
+bitflags! {
+    struct PacketAddressFlags: u16 {
+        const EMPTY = 0;
+        const BROADCAST = 1;
+        const USB = 1 << 1;
+        const BLUETOOTH = 1 << 2;
+        const TBS_CORE_PNP_PRO = 1 << 3;
+        const RESERVED1 = 1 << 4;
+        const CURRENT_SENSOR = 1 << 5;
+        const GPS = 1 << 6;
+        const TBS_BLACKBOX = 1 << 7;
+        const FLIGHT_CONTROLLER = 1 << 8;
+        const RESERVED2 = 1 << 9;
+        const RACE_TAG = 1 << 10;
+        const HANDSET =  1 << 11;
+        const RECEIVER = 1 << 12;
+        const TRANSMITTER = 1 << 13;
+    }
+}
+
+impl PacketAddressFlags {
+    const fn from_address(address: PacketAddress) -> Self {
+        use PacketAddress::*;
+
+        match address {
+            // More frequent addresses are higher
+            FlightController => PacketAddressFlags::FLIGHT_CONTROLLER,
+            Handset => PacketAddressFlags::HANDSET,
+            Receiver => PacketAddressFlags::RECEIVER,
+            Transmitter => PacketAddressFlags::TRANSMITTER,
+            Broadcast => PacketAddressFlags::BROADCAST,
+            Usb => PacketAddressFlags::USB,
+            Bluetooth => PacketAddressFlags::BLUETOOTH,
+            TbsCorePnpPro => PacketAddressFlags::TBS_CORE_PNP_PRO,
+            Reserved1 => PacketAddressFlags::RESERVED1,
+            CurrentSensor => PacketAddressFlags::CURRENT_SENSOR,
+            Gps => PacketAddressFlags::GPS,
+            TbsBlackbox => PacketAddressFlags::TBS_BLACKBOX,
+            Reserved2 => PacketAddressFlags::RESERVED2,
+            RaceTag => PacketAddressFlags::RACE_TAG,
+        }
+    }
+}
+
+struct PacketAddressDecoder {
+    flags: PacketAddressFlags,
+}
+
+impl PacketAddressDecoder {
+    const fn new(addrs: &[PacketAddress]) -> Self {
+        let mut flags = 0;
+        let mut addr_ix = 0;
+        while addr_ix < addrs.len() {
+            flags |= PacketAddressFlags::from_address(addrs[addr_ix]).bits();
+            addr_ix += 1;
+        }
+        Self {
+            flags: PacketAddressFlags::from_bits_truncate(flags)
+        }
+    }
+
+    fn decode(&self, addr_byte: u8) -> Option<PacketAddress> {
+        PacketAddress::try_from(addr_byte).ok()
+            .filter(|&addr| self.flags.contains(PacketAddressFlags::from_address(addr)))
+    }
+}
+
 /// Represents all CRSF packet types
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
@@ -399,16 +470,17 @@ mod tests {
 
     #[test]
     fn test_packet_reader_waiting_for_sync_byte() {
-        let mut reader = PacketReader::new();
+        let expected_addrs = &[PacketAddress::Handset, PacketAddress::Transmitter];
+        let mut reader = PacketReader::with_addresses(expected_addrs);
         let typ = PacketType::RcChannelsPacked;
 
-        for _ in 0..2 {
+        for addr in expected_addrs {
             // Garbage
             assert!(reader.push_bytes(&[1, 2, 3]).0.is_none());
             // More garbage
-            assert!(reader.push_bytes(&[254, 255]).0.is_none());
+            assert!(reader.push_bytes(&[PacketAddress::FlightController as u8, PacketAddress::Broadcast as u8]).0.is_none());
             // Sync
-            assert!(reader.push_bytes(&[PacketAddress::Handset as u8]).0.is_none());
+            assert!(reader.push_bytes(&[*addr as u8]).0.is_none());
             // Len
             assert!(reader.push_bytes(&[24]).0.is_none());
             // Type
@@ -419,7 +491,7 @@ mod tests {
             assert!(matches!(
                 reader.push_bytes(&[239]).0.map(|raw_packet| Packet::parse(raw_packet)).expect("packet expected"),
                 Ok(Packet {
-                    addr: PacketAddress::Handset,
+                    addr: PacketAddress::Handset | PacketAddress::Transmitter,
                     payload: PacketPayload::RcChannels(RcChannels(channels))
                 }) if channels == [0; 16]
             ));
@@ -428,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet() {
-        let mut reader = PacketReader::new();
+        let mut reader = PacketReader::default();
 
         let addr = PacketAddress::FlightController;
         let typ = PacketType::RcChannelsPacked;
@@ -453,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_parse_full_packet() {
-        let mut reader = PacketReader::new();
+        let mut reader = PacketReader::default();
 
         let addr = PacketAddress::FlightController;
         let typ = PacketType::RcChannelsPacked;
@@ -481,7 +553,7 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet_with_validation_error() {
-        let mut reader = PacketReader::new();
+        let mut reader = PacketReader::default();
 
         let addr = PacketAddress::FlightController;
 
