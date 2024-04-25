@@ -37,14 +37,16 @@ use snafu::prelude::*;
 #[link_section = ".data"]
 static CRC8: Crc<u8> = Crc::<u8>::new(&CRC_8_DVB_S2);
 
+use buffer::{Buf, BytesReader};
 pub use packets::*;
 
+mod buffer;
 mod packets;
 mod to_array;
 
 /// Represents a packet reader
 pub struct PacketReader {
-    buf: [u8; Packet::MAX_LENGTH],
+    buf: Buf<{ Packet::MAX_LENGTH }>,
     state: ReadState,
 }
 
@@ -57,9 +59,17 @@ impl PacketReader {
     /// Creates a new PacketReader struct
     pub const fn new() -> Self {
         Self {
-            buf: [0; Packet::MAX_LENGTH],
+            buf: Buf::new(),
             state: ReadState::WaitingForSync,
         }
+    }
+
+    /// Resets reader's state
+    ///
+    /// Useful in situations when timeout is triggered but a packet is not parsed
+    pub fn reset(&mut self) {
+        self.buf.clear();
+        self.state = ReadState::WaitingForSync;
     }
 
     /// Reads the first packet from the buffer
@@ -70,7 +80,8 @@ impl PacketReader {
                 ReadState::WaitingForSync => {
                     while let Some(addr_byte) = reader.next() {
                         if PacketAddress::try_from(addr_byte).is_ok() {
-                            self.buf[0] = addr_byte;
+                            self.buf.clear();
+                            self.buf.push(addr_byte);
                             self.state = ReadState::WaitingForLen;
                             break;
                         }
@@ -85,9 +96,8 @@ impl PacketReader {
                     if let Some(len_byte) = reader.next() {
                         match len_byte {
                             Self::MIN_DATA_LENGTH..=Self::MAX_DATA_LENGTH => {
-                                self.buf[1] = len_byte;
+                                self.buf.push(len_byte);
                                 self.state = ReadState::Reading {
-                                    idx: Packet::HEADER_LENGTH,
                                     len: Packet::HEADER_LENGTH + len_byte as usize,
                                 };
                             }
@@ -96,16 +106,15 @@ impl PacketReader {
                         continue;
                     }
                 }
-                ReadState::Reading { ref mut idx, len } => {
-                    let data = reader.next_n(len - *idx);
-                    self.buf[*idx..*idx + data.len()].copy_from_slice(data);
-                    *idx += data.len();
-                    if *idx >= len {
+                ReadState::Reading { len } => {
+                    let data = reader.next_n(len - self.buf.len());
+                    self.buf.push_bytes(data);
+                    if self.buf.len() >= len {
                         self.state = ReadState::WaitingForSync;
                         break Some(
                             RawPacket {
-                                buf: &self.buf,
-                                len,
+                                buf: self.buf.data(),
+                                len: self.buf.len(),
                             }
                         );
                     }
@@ -323,43 +332,7 @@ impl PacketType {
 enum ReadState {
     WaitingForSync,
     WaitingForLen,
-    Reading { idx: usize, len: usize },
-}
-
-struct BytesReader<'a> {
-    buf: &'a [u8],
-    idx: usize,
-}
-
-impl<'a> BytesReader<'a> {
-    fn new(buf: &'a [u8]) -> Self {
-        Self { buf, idx: 0 }
-    }
-
-    fn consumed(&self) -> usize {
-        self.idx
-    }
-
-    fn is_empty(&self) -> bool {
-        self.idx == self.buf.len()
-    }
-
-    fn next(&mut self) -> Option<u8> {
-        if self.idx < self.buf.len() {
-            let val = self.buf[self.idx];
-            self.idx += 1;
-            Some(val)
-        } else {
-            None
-        }
-    }
-
-    fn next_n(&mut self, n: usize) -> &[u8] {
-        let end_idx = (self.idx + n).min(self.buf.len());
-        let data = &self.buf[self.idx..end_idx];
-        self.idx = end_idx;
-        data
-    }
+    Reading { len: usize },
 }
 
 #[cfg(test)]
@@ -392,23 +365,25 @@ mod tests {
         let mut reader = PacketReader::new();
         let typ = PacketType::RcChannelsPacked;
 
-        // Garbage
-        assert!(reader.push_bytes(&[0, 1, 2, 3]).0.is_none());
-        // More garbage
-        assert!(reader.push_bytes(&[254, 255]).0.is_none());
-        // Sync
-        assert!(reader.push_bytes(&[PacketAddress::Handset as u8]).0.is_none());
-        // Len
-        assert!(reader.push_bytes(&[24]).0.is_none());
-        // Type
-        assert!(reader.push_bytes(&[typ as u8]).0.is_none());
-        // Payload
-        assert!(reader.push_bytes(&[0; 22]).0.is_none());
-        // Checksum
-        assert!(matches!(
-            reader.push_bytes(&[239]).0.map(|raw_packet| Packet::parse(raw_packet)).expect("packet expected"),
-            Ok(Packet::RcChannels(RcChannels(channels))) if channels == [0; 16]
-        ));
+        for _ in 0..2 {
+            // Garbage
+            assert!(reader.push_bytes(&[1, 2, 3]).0.is_none());
+            // More garbage
+            assert!(reader.push_bytes(&[254, 255]).0.is_none());
+            // Sync
+            assert!(reader.push_bytes(&[PacketAddress::Handset as u8]).0.is_none());
+            // Len
+            assert!(reader.push_bytes(&[24]).0.is_none());
+            // Type
+            assert!(reader.push_bytes(&[typ as u8]).0.is_none());
+            // Payload
+            assert!(reader.push_bytes(&[0; 22]).0.is_none());
+            // Checksum
+            assert!(matches!(
+                reader.push_bytes(&[239]).0.map(|raw_packet| Packet::parse(raw_packet)).expect("packet expected"),
+                Ok(Packet::RcChannels(RcChannels(channels))) if channels == [0; 16]
+            ));
+        }
     }
 
     #[test]
