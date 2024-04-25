@@ -75,7 +75,11 @@ impl PacketReader {
                             break;
                         }
                     }
-                    continue;
+                    if reader.is_empty() {
+                        break None;
+                    } else {
+                        continue;
+                    }
                 }
                 ReadState::WaitingForLen => {
                     if let Some(len_byte) = reader.next() {
@@ -336,6 +340,10 @@ impl<'a> BytesReader<'a> {
         self.idx
     }
 
+    fn is_empty(&self) -> bool {
+        self.idx == self.buf.len()
+    }
+
     fn next(&mut self) -> Option<u8> {
         if self.idx < self.buf.len() {
             let val = self.buf[self.idx];
@@ -377,6 +385,30 @@ mod tests {
         assert_eq!(reader.next(), Some(4));
         assert_eq!(reader.next(), Some(5));
         assert_eq!(reader.consumed(), 5);
+    }
+
+    #[test]
+    fn test_packet_reader_waiting_for_sync_byte() {
+        let mut reader = PacketReader::new();
+        let typ = PacketType::RcChannelsPacked;
+
+        // Garbage
+        assert!(reader.push_bytes(&[0, 1, 2, 3]).0.is_none());
+        // More garbage
+        assert!(reader.push_bytes(&[254, 255]).0.is_none());
+        // Sync
+        assert!(reader.push_bytes(&[PacketAddress::Handset as u8]).0.is_none());
+        // Len
+        assert!(reader.push_bytes(&[24]).0.is_none());
+        // Type
+        assert!(reader.push_bytes(&[typ as u8]).0.is_none());
+        // Payload
+        assert!(reader.push_bytes(&[0; 22]).0.is_none());
+        // Checksum
+        assert!(matches!(
+            reader.push_bytes(&[239]).0.map(|raw_packet| Packet::parse(raw_packet)).expect("packet expected"),
+            Ok(Packet::RcChannels(RcChannels(channels))) if channels == [0; 16]
+        ));
     }
 
     #[test]
