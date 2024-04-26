@@ -2,23 +2,40 @@
 //! # Usage
 //! ### Packet Parsing
 //! ```rust
-//! use crsf::{PacketReader, PacketAddress, PacketType};
+//! use crsf::{Packet, PacketReader, PacketAddress, PacketType};
 //!
 //! let mut reader = PacketReader::new();
+//! let data: &[&[u8]] = &[&[0xc8, 24, 0x16], &[0; 22], &[239]];
+//! for input_buf in data {
+//!     let mut buf: &[u8] = input_buf;
+//!     while !buf.is_empty() {
+//!         let consumed = match reader.push_bytes(buf) {
+//!             (Some(raw_packet), n) => {
+//!                 let packet = Packet::parse(raw_packet).expect("valid packet");
+//!                 n
+//!             }
+//!             (None, n) => n,
+//!         };
+//!         buf = &buf[consumed..];
+//!     }
+//! }
 //!
 //! let addr = PacketAddress::FlightController;
 //! let typ = PacketType::RcChannelsPacked;
 //! ```
 //! ### Packet Construction
 //! ```rust
-//! use crsf::{Packet, RcChannels, PacketAddress};
+//! use crsf::{Packet, PacketAddress, PacketPayload, RcChannels};
 //!
-//! let addr = PacketAddress::FlightController;
 //! let channels: [u16; 16] = [0xffff; 16];
-//! let packet = Packet::RcChannels(RcChannels(channels));
+//! let packet = Packet::new(
+//!     PacketAddress::FlightController,
+//!     PacketPayload::RcChannels(RcChannels(channels))
+//! );
 //!
 //! let mut buf = [0u8; Packet::MAX_LENGTH];
-//! let len = packet.dump(&mut buf, addr);
+//! let packet_len = packet.dump(&mut buf).expect("dumped packet");
+//! let packet_data = &buf[..packet_len];
 //!
 //! // ...
 //! ```
@@ -79,10 +96,10 @@ impl PacketReader {
             match self.state {
                 ReadState::WaitingForSync => {
                     while let Some(addr_byte) = reader.next() {
-                        if PacketAddress::try_from(addr_byte).is_ok() {
+                        if let Ok(addr) = PacketAddress::try_from(addr_byte) {
                             self.buf.clear();
                             self.buf.push(addr_byte);
-                            self.state = ReadState::WaitingForLen;
+                            self.state = ReadState::WaitingForLen { addr };
                             break;
                         }
                     }
@@ -92,12 +109,13 @@ impl PacketReader {
                         continue;
                     }
                 }
-                ReadState::WaitingForLen => {
+                ReadState::WaitingForLen { addr } => {
                     if let Some(len_byte) = reader.next() {
                         match len_byte {
                             Self::MIN_DATA_LENGTH..=Self::MAX_DATA_LENGTH => {
                                 self.buf.push(len_byte);
                                 self.state = ReadState::Reading {
+                                    addr,
                                     len: Packet::HEADER_LENGTH + len_byte as usize,
                                 };
                             }
@@ -106,13 +124,14 @@ impl PacketReader {
                         continue;
                     }
                 }
-                ReadState::Reading { len } => {
+                ReadState::Reading { addr, len } => {
                     let data = reader.next_n(len - self.buf.len());
                     self.buf.push_bytes(data);
                     if self.buf.len() >= len {
                         self.state = ReadState::WaitingForSync;
                         break Some(
                             RawPacket {
+                                addr,
                                 buf: self.buf.data(),
                                 len: self.buf.len(),
                             }
@@ -137,6 +156,7 @@ impl Default for PacketReader {
 /// Represents a raw packet (not parsed)
 #[derive(Clone, Copy, Debug)]
 pub struct RawPacket<'a> {
+    addr: PacketAddress,
     buf: &'a [u8; Packet::MAX_LENGTH],
     len: usize,
 }
@@ -147,15 +167,23 @@ impl<'a> RawPacket<'a> {
         &self.buf[..self.len]
     }
 
-    // TODO: maybe add methods for getting the addr etc
+    pub fn addr(&self) -> PacketAddress {
+        self.addr
+    }
+}
+
+/// Represents a packet payload data
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum PacketPayload {
+    LinkStatistics(LinkStatistics),
+    RcChannels(RcChannels),
 }
 
 /// Represents a parsed packet
-#[non_exhaustive]
-#[derive(Clone, Debug)]
-pub enum Packet {
-    LinkStatistics(LinkStatistics),
-    RcChannels(RcChannels),
+pub struct Packet {
+    pub addr: PacketAddress,
+    pub payload: PacketPayload,
 }
 
 impl Packet {
@@ -163,6 +191,11 @@ impl Packet {
     pub const MAX_LENGTH: usize = 64;
     /// Crsf packet header length
     pub const HEADER_LENGTH: usize = 2;
+
+    /// Creates new packet with address and payload
+    pub fn new(addr: PacketAddress, payload: PacketPayload) -> Self {
+        Self { addr, payload }
+    }
 
     /// Parses a raw packet (returned by the packet reader)
     pub fn parse(raw_packet: RawPacket) -> Result<Packet, ParseError> {
@@ -189,27 +222,31 @@ impl Packet {
                 &buf[3..len]
             };
 
-            match typ {
+            let payload = match typ {
                 PacketType::RcChannelsPacked => {
-                    Ok(Packet::RcChannels(RcChannels::parse(payload_data)))
+                    PacketPayload::RcChannels(RcChannels::parse(payload_data))
                 }
                 PacketType::LinkStatistics => {
-                    Ok(Packet::LinkStatistics(LinkStatistics::parse(payload_data)))
+                    PacketPayload::LinkStatistics(LinkStatistics::parse(payload_data))
                 }
-                _ => Err(ParseError::UnknownType { typ: typ_byte }),
-            }
+                _ => return Err(ParseError::UnknownType { typ: typ_byte }),
+            };
+            Ok(Packet {
+                addr: raw_packet.addr,
+                payload,
+            })
         } else {
             Err(ParseError::InvalidType { typ: typ_byte })
         }
     }
 
     /// Dumps the packet into a buffer
-    pub fn dump(&self, buf: &mut [u8], addr: PacketAddress) -> Result<usize, BufferLenError> {
+    pub fn dump(&self, buf: &mut [u8]) -> Result<usize, BufferLenError> {
         // TODO: use more constants instead of literals
 
-        let payload = match self {
-            Packet::LinkStatistics(payload) => payload as &dyn Payload,
-            Packet::RcChannels(payload) => payload as &dyn Payload,
+        let payload = match &self.payload {
+            PacketPayload::LinkStatistics(payload) => payload as &dyn Payload,
+            PacketPayload::RcChannels(payload) => payload as &dyn Payload,
         };
 
         let typ = payload.packet_type();
@@ -223,7 +260,7 @@ impl Packet {
             });
         }
 
-        buf[0] = addr as u8;
+        buf[0] = self.addr as u8;
         buf[1] = len_byte;
         buf[2] = typ as u8;
 
@@ -331,8 +368,8 @@ impl PacketType {
 ///
 enum ReadState {
     WaitingForSync,
-    WaitingForLen,
-    Reading { len: usize },
+    WaitingForLen { addr: PacketAddress },
+    Reading { addr: PacketAddress, len: usize },
 }
 
 #[cfg(test)]
@@ -342,11 +379,11 @@ mod tests {
     use crate::LinkStatistics;
     use crate::Packet;
     use crate::PacketAddress;
-
-    use super::PacketReader;
-    use super::PacketType;
-    use super::ParseError;
-    use super::RcChannels;
+    use crate::PacketPayload;
+    use crate::PacketReader;
+    use crate::PacketType;
+    use crate::ParseError;
+    use crate::RcChannels;
 
     #[test]
     fn test_bytes_reader() {
@@ -381,7 +418,10 @@ mod tests {
             // Checksum
             assert!(matches!(
                 reader.push_bytes(&[239]).0.map(|raw_packet| Packet::parse(raw_packet)).expect("packet expected"),
-                Ok(Packet::RcChannels(RcChannels(channels))) if channels == [0; 16]
+                Ok(Packet {
+                    addr: PacketAddress::Handset,
+                    payload: PacketPayload::RcChannels(RcChannels(channels))
+                }) if channels == [0; 16]
             ));
         }
     }
@@ -404,7 +444,10 @@ mod tests {
         // Checksum
         assert!(matches!(
             reader.push_bytes(&[239]).0.map(|raw_packet| Packet::parse(raw_packet)).expect("packet expected"),
-            Ok(Packet::RcChannels(RcChannels(channels))) if channels == [0; 16]
+            Ok(Packet {
+                addr: PacketAddress::FlightController,
+                payload: PacketPayload::RcChannels(RcChannels(channels))
+            }) if channels == [0; 16]
         ));
     }
 
@@ -429,9 +472,13 @@ mod tests {
         ];
         assert!(matches!(
             reader.push_bytes(&data).0.map(|raw_packet| Packet::parse(raw_packet)).expect("packet expected"),
-            Ok(Packet::RcChannels(RcChannels(channels))) if channels == [0; 16]
+            Ok(Packet {
+                addr: PacketAddress::FlightController,
+                payload: PacketPayload::RcChannels(RcChannels(channels))
+            }) if channels == [0; 16]
         ));
     }
+
     #[test]
     fn test_parse_next_packet_with_validation_error() {
         let mut reader = PacketReader::new();
@@ -462,22 +509,25 @@ mod tests {
 
     #[test]
     fn test_packet_dump_in_small_buffer() {
-        let packet = Packet::LinkStatistics(LinkStatistics {
-            uplink_rssi_1: 16,
-            uplink_rssi_2: 19,
-            uplink_link_quality: 99,
-            uplink_snr: -105,
-            active_antenna: 1,
-            rf_mode: 2,
-            uplink_tx_power: 3,
-            downlink_rssi: 8,
-            downlink_link_quality: 88,
-            downlink_snr: -108,
-        });
+        let packet = Packet::new(
+            PacketAddress::FlightController,
+            PacketPayload::LinkStatistics(LinkStatistics {
+                uplink_rssi_1: 16,
+                uplink_rssi_2: 19,
+                uplink_link_quality: 99,
+                uplink_snr: -105,
+                active_antenna: 1,
+                rf_mode: 2,
+                uplink_tx_power: 3,
+                downlink_rssi: 8,
+                downlink_link_quality: 88,
+                downlink_snr: -108,
+            })
+        );
 
         let mut buf = [0u8; 10];
         assert_eq!(
-            packet.dump(&mut buf, PacketAddress::FlightController),
+            packet.dump(&mut buf),
             Err(BufferLenError {
                 expected: 14,
                 actual: 10
@@ -488,10 +538,13 @@ mod tests {
     #[test]
     fn test_rc_channels_packet_dump() {
         let channels: [u16; 16] = [0x7FF; 16];
-        let packet = Packet::RcChannels(RcChannels(channels));
+        let packet = Packet::new(
+            PacketAddress::Transmitter,
+            PacketPayload::RcChannels(RcChannels(channels))
+        );
 
         let mut buf = [0u8; Packet::MAX_LENGTH];
-        let len = packet.dump(&mut buf, PacketAddress::Transmitter).unwrap();
+        let len = packet.dump(&mut buf).unwrap();
         let mut expected_data: [u8; 26] = [0xff; 26];
         expected_data[0] = 0xee;
         expected_data[1] = 24;
@@ -502,21 +555,24 @@ mod tests {
 
     #[test]
     fn test_link_statistics_packet_dump() {
-        let packet = Packet::LinkStatistics(LinkStatistics {
-            uplink_rssi_1: 16,
-            uplink_rssi_2: 19,
-            uplink_link_quality: 99,
-            uplink_snr: -105,
-            active_antenna: 1,
-            rf_mode: 2,
-            uplink_tx_power: 3,
-            downlink_rssi: 8,
-            downlink_link_quality: 88,
-            downlink_snr: -108,
-        });
+        let packet = Packet::new(
+            PacketAddress::FlightController,
+            PacketPayload::LinkStatistics(LinkStatistics {
+                uplink_rssi_1: 16,
+                uplink_rssi_2: 19,
+                uplink_link_quality: 99,
+                uplink_snr: -105,
+                active_antenna: 1,
+                rf_mode: 2,
+                uplink_tx_power: 3,
+                downlink_rssi: 8,
+                downlink_link_quality: 88,
+                downlink_snr: -108,
+            })
+        );
 
         let mut buf = [0u8; Packet::MAX_LENGTH];
-        let len = packet.dump(&mut buf, PacketAddress::FlightController).unwrap();
+        let len = packet.dump(&mut buf).unwrap();
         let expected_data = [0xc8, 12, 0x14, 16, 19, 99, 151, 1, 2, 3, 8, 88, 148, 252];
         assert_eq!(&buf[..len], &expected_data)
     }
