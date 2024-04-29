@@ -1,6 +1,6 @@
 use std::{env, io, time::Duration};
 
-use crsf::{Packet, PacketPayload, PacketReader};
+use crsf::{Packet, PacketReader};
 
 fn main() {
     let path = env::args().nth(1).expect("no serial port supplied");
@@ -13,26 +13,24 @@ fn main() {
     let mut reader = PacketReader::new();
     loop {
         match port.read(buf.as_mut_slice()) {
-            Ok(n) => {
-                if n > 0 {
-                    let mut remaining = &buf[..n];
-                    while let (Some(raw_packet), consumed) = reader.push_bytes(remaining) {
-                        match Packet::parse(raw_packet) {
-                            Ok(packet) => match packet.payload {
-                                PacketPayload::LinkStatistics(link_statistics) => {
-                                    println!("{:?}", link_statistics);
-                                }
-                                PacketPayload::RcChannels(channels) => {
-                                    println!("{:?}", channels);
-                                }
-                                _ => {}
-                            },
-                            Err(err) => eprintln!("{err}"),
-                        };
-
-                        remaining = &remaining[consumed..];
+            Ok(n @ 1..) => {
+                for result in reader.iter_packets(&buf[..n]) {
+                    match result {
+                        Ok(Packet::LinkStatistics(link_stats)) => {
+                            println!("{:?}", link_stats);
+                        }
+                        Ok(Packet::RcChannelsPacked(rc_channels)) => {
+                            println!("{:?}", rc_channels);
+                        }
+                        _ => {
+                            eprintln!("Unknown packet");
+                        }
                     }
                 }
+            }
+            Ok(0) => {
+                eprintln!("EOF");
+                break;
             }
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => (),
             Err(e) => {

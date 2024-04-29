@@ -1,7 +1,12 @@
-use crate::{Payload, PacketType};
+//! LinkStatistics packet and related functions/implementations
+
+use super::Payload;
+use crate::to_array::{mut_array_start, ref_array_start};
+use crate::{CrsfError, PacketType};
 
 /// Represents a LinkStatistics packet
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
+#[allow(missing_docs)]
 pub struct LinkStatistics {
     pub uplink_rssi_1: u8,
     pub uplink_rssi_2: u8,
@@ -15,48 +20,64 @@ pub struct LinkStatistics {
     pub downlink_snr: i8,
 }
 
-impl LinkStatistics {
-    pub(crate) const PAYLOAD_LENGTH: u8 = 10;
+const LEN: usize = LinkStatistics::LEN;
 
-    pub(crate) fn parse(data: &[u8]) -> Self {
-        Self {
-            uplink_rssi_1: data[0],
-            uplink_rssi_2: data[1],
-            uplink_link_quality: data[2],
-            uplink_snr: data[3] as i8,
-            active_antenna: data[4],
-            rf_mode: data[5],
-            uplink_tx_power: data[6],
-            downlink_rssi: data[7],
-            downlink_link_quality: data[8],
-            downlink_snr: data[9] as i8,
-        }
+/// The raw decoder (parser) for the LinkStatistics packet.
+pub fn raw_decode(data: &[u8; LEN]) -> LinkStatistics {
+    LinkStatistics {
+        uplink_rssi_1: data[0],
+        uplink_rssi_2: data[1],
+        uplink_link_quality: data[2],
+        uplink_snr: data[3] as i8,
+        active_antenna: data[4],
+        rf_mode: data[5],
+        uplink_tx_power: data[6],
+        downlink_rssi: data[7],
+        downlink_link_quality: data[8],
+        downlink_snr: data[9] as i8,
     }
 }
 
+/// The raw encoder (serializer) for the LinkStatistics packet.
+pub fn raw_encode(link_statistics: &LinkStatistics, data: &mut [u8; LEN]) {
+    data[0] = link_statistics.uplink_rssi_1;
+    data[1] = link_statistics.uplink_rssi_2;
+    data[2] = link_statistics.uplink_link_quality;
+    data[3] = link_statistics.uplink_snr as u8;
+    data[4] = link_statistics.active_antenna;
+    data[5] = link_statistics.rf_mode;
+    data[6] = link_statistics.uplink_tx_power;
+    data[7] = link_statistics.downlink_rssi;
+    data[8] = link_statistics.downlink_link_quality;
+    data[9] = link_statistics.downlink_snr as u8;
+}
+
 impl Payload for LinkStatistics {
-    fn len(&self) -> u8 { Self::PAYLOAD_LENGTH }
+    const LEN: usize = 10;
 
-    fn packet_type(&self) -> PacketType { PacketType::LinkStatistics }
+    fn packet_type(&self) -> PacketType {
+        PacketType::LinkStatistics
+    }
 
-    fn dump(&self, data: &mut [u8]) {
-        data[0] = self.uplink_rssi_1;
-        data[1] = self.uplink_rssi_2;
-        data[2] = self.uplink_link_quality;
-        data[3] = self.uplink_snr as u8;
-        data[4] = self.active_antenna;
-        data[5] = self.rf_mode;
-        data[6] = self.uplink_tx_power;
-        data[7] = self.downlink_rssi;
-        data[8] = self.downlink_link_quality;
-        data[9] = self.downlink_snr as u8;
+    fn decode(buf: &[u8]) -> Result<Self, crate::CrsfError> {
+        let data: &[u8; LEN] = ref_array_start(buf).ok_or(CrsfError::BufferError)?;
+
+        Ok(raw_decode(data))
+    }
+
+    fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], crate::CrsfError> {
+        let data: &mut [u8; LEN] = mut_array_start(buf).ok_or(CrsfError::BufferError)?;
+
+        raw_encode(self, data);
+
+        Ok(data)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{LinkStatistics, Packet};
-    use crate::packets::Payload;
+    use super::LinkStatistics;
+    use crate::Payload;
 
     #[test]
     fn test_link_statistics_write_and_parse() {
@@ -73,8 +94,9 @@ mod tests {
             downlink_snr: -68,
         };
 
-        let mut data = [0u8; Packet::MAX_LENGTH];
-        original.dump(&mut data);
+        let raw = original.into_raw_packet().unwrap();
+
+        let data = raw.payload().unwrap();
 
         assert_eq!(data[0], 100_u8.to_le());
         assert_eq!(data[1], 98_u8.to_le());
@@ -87,7 +109,7 @@ mod tests {
         assert_eq!(data[8], 98_u8.to_le());
         assert_eq!(data[9], -(68_i8.to_le()) as u8);
 
-        let parsed = LinkStatistics::parse(&data);
+        let parsed = LinkStatistics::decode(&data).unwrap();
 
         assert_eq!(parsed.uplink_rssi_1, 100);
         assert_eq!(parsed.uplink_rssi_2, 98);
