@@ -2,9 +2,9 @@
 //! # Usage
 //! ### Packet Parsing
 //! ```rust
-//! use crsf::{Packet, PacketReader, PacketAddress, PacketType, RcChannelsPacked};
+//! use crsf::{Config, Packet, PacketReader, PacketAddress, PacketType, RcChannelsPacked};
 //!
-//! let mut reader = PacketReader::new();
+//! let mut reader = PacketReader::new(Config::default());
 //! let data: &[&[u8]] = &[&[0xc8, 24, 0x16], &[0; 22], &[239]];
 //! for (i, input_buf) in data.iter().enumerate() {
 //!     for (j, result) in reader.iter_packets(input_buf).enumerate() {
@@ -17,14 +17,13 @@
 //! ```
 //! ### Packet Construction
 //! ```rust
-//! use crsf::{PacketAddress, PacketType, RcChannelsPacked, Payload};
+//! use crsf::{PacketAddress, PacketType, RcChannelsPacked, Payload, CRSF_SYNC_BYTE};
 //!
 //! let channels: [u16; 16] = [0xffff; 16];
-//! let addr = PacketAddress::FlightController;
 //! let payload = RcChannelsPacked(channels);
 //!
 //! // Import the `Payload` trait to construct a raw packet
-//! let raw_packet = payload.to_raw_packet_with_sync(addr as u8).unwrap();
+//! let raw_packet = payload.to_raw_packet().unwrap();
 //! // ...
 //! ```
 
@@ -46,8 +45,8 @@ mod crc8;
 mod to_array;
 
 pub const CRSF_MAX_LEN: usize = 64;
+pub const CRSF_SYNC_BYTE: u8 = 0xC8;
 const CRSF_HEADER_LEN: usize = 2;
-const CRSF_SYNC_BYTE: u8 = 0xC8;
 
 /// Represents packet parsing errors
 #[non_exhaustive]

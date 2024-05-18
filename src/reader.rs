@@ -1,6 +1,5 @@
 use crate::{
-    crc8::Crc8, Error, Packet, PacketAddress, PacketAddressFlags, PacketType, RawPacket,
-    CRSF_HEADER_LEN, CRSF_MAX_LEN,
+    crc8::Crc8, Error, Packet, PacketType, RawPacket, CRSF_HEADER_LEN, CRSF_MAX_LEN, CRSF_SYNC_BYTE,
 };
 
 /// Represents a state machine for reading a CRSF packet
@@ -19,19 +18,19 @@ enum ReadState {
     Reading,
 }
 
-pub struct ReaderConfig {
+#[non_exhaustive]
+pub struct Config {
     /// Sync byte to use for finding the start of a frame. Default is `0xC8`
-    sync: PacketAddressFlags,
+    sync: &'static [u8],
 
     /// Whether to ensure the type byte is a valid PacketType enum value. Default is `true`.
     type_check: bool,
 }
 
-impl ReaderConfig {
-    // Not using default trait because it is not const
-    const fn default() -> Self {
+impl Default for Config {
+    fn default() -> Self {
         Self {
-            sync: PacketAddressFlags::FLIGHT_CONTROLLER,
+            sync: &[CRSF_SYNC_BYTE],
             type_check: true,
         }
     }
@@ -42,19 +41,7 @@ pub struct PacketReader {
     state: ReadState,
     raw: RawPacket,
     digest: Crc8,
-    config: ReaderConfig,
-}
-
-impl Default for PacketReader {
-    /// Creates a new PacketReader with the default configuration
-    fn default() -> Self {
-        Self {
-            state: ReadState::AwaitingSync,
-            raw: RawPacket::empty(),
-            digest: Crc8::new(),
-            config: ReaderConfig::default(),
-        }
-    }
+    config: Config,
 }
 
 impl PacketReader {
@@ -64,21 +51,12 @@ impl PacketReader {
     const MAX_LEN_BYTE: u8 = CRSF_MAX_LEN as u8 - Self::MIN_LEN_BYTE;
 
     /// Creates a new PacketReader struct
-    pub const fn new() -> Self {
+    pub const fn new(config: Config) -> Self {
         Self {
             state: ReadState::AwaitingSync,
             raw: RawPacket::empty(),
             digest: Crc8::new(),
-            config: ReaderConfig::default(),
-        }
-    }
-
-    pub const fn builder() -> PacketReaderBuilder {
-        PacketReaderBuilder {
-            config: ReaderConfig {
-                sync: PacketAddressFlags::FLIGHT_CONTROLLER,
-                type_check: true,
-            },
+            config,
         }
     }
 
@@ -101,7 +79,7 @@ impl PacketReader {
             match self.state {
                 ReadState::AwaitingSync => {
                     while let Some(sync_byte) = reader.next() {
-                        if self.config.sync.contains_u8(sync_byte) {
+                        if self.config.sync.contains(&sync_byte) {
                             self.raw.buf[0] = sync_byte;
                             self.state = ReadState::AwaitingLen;
                             continue 'state_machine;
@@ -195,35 +173,6 @@ impl PacketReader {
     }
 }
 
-pub struct PacketReaderBuilder {
-    config: ReaderConfig,
-}
-
-impl PacketReaderBuilder {
-    pub fn sync(mut self, sync: &[PacketAddress]) -> Self {
-        let mut sync_byte = PacketAddressFlags::empty();
-        for addr in sync {
-            sync_byte |= PacketAddressFlags::from_address(*addr);
-        }
-        self.config.sync = sync_byte;
-        self
-    }
-
-    pub fn type_check(mut self, type_check: bool) -> Self {
-        self.config.type_check = type_check;
-        self
-    }
-
-    pub fn build(self) -> PacketReader {
-        PacketReader {
-            state: ReadState::AwaitingSync,
-            raw: RawPacket::empty(),
-            digest: Crc8::new(),
-            config: self.config,
-        }
-    }
-}
-
 /// An iterator over a buffer that yield `RawPacket` instances, or `Error` in case of currupt data.
 /// This iterator will consume the and process the entire buffer. For an iterator that also parses the
 /// packets into `Packet` instances, use `IterPackets` instead.
@@ -272,16 +221,16 @@ impl<'a, 'b> Iterator for IterPackets<'a, 'b> {
 mod tests {
     use crate::Error;
     use crate::Packet;
-    use crate::PacketAddress;
     use crate::PacketReader;
     use crate::PacketType;
     use crate::Payload;
     use crate::RcChannelsPacked;
+    use crate::Config;
+    use crate::CRSF_SYNC_BYTE;
 
     #[test]
     fn test_packet_reader_waiting_for_sync_byte() {
-        let addr = PacketAddress::Handset;
-        let mut reader = PacketReader::builder().sync(&[addr]).build();
+        let mut reader = PacketReader::new(Config::default());
 
         let typ = PacketType::RcChannelsPacked as u8;
 
@@ -297,7 +246,7 @@ mod tests {
                 Some(Err(Error::NoSyncByte))
             ));
             // Sync
-            assert!(reader.push_bytes(&[addr as u8]).0.is_none());
+            assert!(reader.push_bytes(&[CRSF_SYNC_BYTE]).0.is_none());
             // Len
             assert!(reader.push_bytes(&[24]).0.is_none());
             // Type
@@ -322,13 +271,12 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet() {
-        let mut reader = PacketReader::new();
+        let mut reader = PacketReader::new(Config::default());
 
-        let addr = PacketAddress::FlightController;
         let typ = PacketType::RcChannelsPacked;
 
         // Sync
-        assert!(reader.push_bytes(&[addr as u8]).0.is_none());
+        assert!(reader.push_bytes(&[CRSF_SYNC_BYTE]).0.is_none());
         // Len
         assert!(reader.push_bytes(&[24]).0.is_none());
         // Type
@@ -352,7 +300,7 @@ mod tests {
     #[test]
     fn test_push_segments() {
         // similar to the doc-test at the top
-        let mut reader = PacketReader::new();
+        let mut reader = PacketReader::new(Config::default());
         let data: &[&[u8]] = &[&[0xc8, 24, 0x16], &[0; 22], &[239]];
         for (i, input_buf) in data.iter().enumerate() {
             for (j, result) in reader.iter_packets(input_buf).enumerate() {
@@ -368,23 +316,24 @@ mod tests {
 
     #[test]
     fn test_multiple_sync() {
-        let mut reader = PacketReader::builder()
-            .sync(&[PacketAddress::FlightController, PacketAddress::Broadcast])
-            .build();
+        let mut reader = PacketReader::new(Config {
+            sync: &[0xC8, 0x00],
+            ..Default::default()
+        });
 
         let rc_channels1 = RcChannelsPacked([1000; 16]);
         let raw_packet1 = rc_channels1
-            .to_raw_packet_with_sync(PacketAddress::FlightController as u8)
+            .to_raw_packet_with_sync(0xC8)
             .unwrap();
 
         let rc_channels2 = RcChannelsPacked([1500; 16]);
         let raw_packet2 = rc_channels2
-            .to_raw_packet_with_sync(PacketAddress::Broadcast as u8)
+            .to_raw_packet_with_sync(0x00)
             .unwrap();
 
         let rc_channels3 = RcChannelsPacked([2000; 16]); // Some other address here ---v
         let raw_packet3 = rc_channels3
-            .to_raw_packet_with_sync(PacketAddress::Reserved1 as u8)
+            .to_raw_packet_with_sync(0x8A)
             .unwrap();
 
         let result1 = reader
@@ -417,17 +366,21 @@ mod tests {
 
     #[test]
     fn test_parse_full_packet() {
-        let mut reader = PacketReader::new();
+        let mut reader = PacketReader::new(Config::default());
 
-        let addr = PacketAddress::FlightController;
         let typ = PacketType::RcChannelsPacked;
 
+        #[rustfmt::skip]
         let data = [
             // Sync
-            addr as u8, // Len
-            24,         // Type
-            typ as u8,  // Payload
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // Checksum
+            CRSF_SYNC_BYTE,
+            // Len
+            24,
+            // Type
+            typ as u8,
+            // Payload
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            // Checksum
             239,
         ];
 
@@ -449,12 +402,10 @@ mod tests {
 
     #[test]
     fn test_parse_next_packet_with_validation_error() {
-        let mut reader = PacketReader::new();
-
-        let addr = PacketAddress::FlightController;
+        let mut reader = PacketReader::new(Config::default());
 
         // Sync
-        assert!(reader.push_bytes(&[addr as u8]).0.is_none());
+        assert!(reader.push_bytes(&[CRSF_SYNC_BYTE]).0.is_none());
         // Len
         assert!(reader.push_bytes(&[24]).0.is_none());
         // Type

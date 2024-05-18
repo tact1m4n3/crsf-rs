@@ -1,6 +1,6 @@
 use std::{env, io, time::Duration};
 
-use crsf::{Packet, PacketReader};
+use crsf::{Config, Packet, PacketReader};
 
 fn main() {
     let path = env::args().nth(1).expect("no serial port supplied");
@@ -10,7 +10,7 @@ fn main() {
         .expect("failed to open serial port");
 
     let mut buf = [0; 1024];
-    let mut reader = PacketReader::new();
+    let mut reader = PacketReader::new(Config::default());
     loop {
         match port.read(buf.as_mut_slice()) {
             Ok(n @ 1..) => {

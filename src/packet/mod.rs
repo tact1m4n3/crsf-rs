@@ -1,10 +1,10 @@
 use crate::{Error, CRSF_MAX_LEN};
 
 mod address;
-pub use address::*;
+pub use address::PacketAddress;
 
 mod typ;
-pub use typ::*;
+pub use typ::PacketType;
 
 mod payload;
 pub use payload::*;

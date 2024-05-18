@@ -22,6 +22,8 @@ pub enum PacketAddress {
     Transmitter = 0xEE,
 }
 
+// using 'static slices for config
+/*
 bitflags::bitflags! {
     pub(crate) struct PacketAddressFlags: u16 {
         const BROADCAST = 1;
@@ -68,3 +70,4 @@ impl PacketAddressFlags {
             .map_or(false, |address| self.contains(Self::from_address(address)))
     }
 }
+*/
