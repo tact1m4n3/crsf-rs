@@ -22,9 +22,9 @@
 //! let channels: [u16; 16] = [0xffff; 16];
 //! let addr = PacketAddress::FlightController;
 //! let payload = RcChannelsPacked(channels);
-//! 
+//!
 //! // Import the `Payload` trait to construct a raw packet
-//! let raw_packet = payload.into_raw_packet_with_sync(addr as u8).unwrap();
+//! let raw_packet = payload.to_raw_packet_with_sync(addr as u8).unwrap();
 //! // ...
 //! ```
 
@@ -492,7 +492,6 @@ mod tests {
 
     #[test]
     fn test_push_segments() { // similar to the doc-test at the top
-        
         let mut reader = PacketReader::new();
         let data: &[&[u8]] = &[&[0xc8, 24, 0x16], &[0; 22], &[239]];
         for (i, input_buf) in data.iter().enumerate() {
@@ -514,17 +513,17 @@ mod tests {
 
         let rc_channels1 = RcChannelsPacked([1000; 16]);
         let raw_packet1 = rc_channels1
-            .into_raw_packet_with_sync(PacketAddress::FlightController as u8)
+            .to_raw_packet_with_sync(PacketAddress::FlightController as u8)
             .unwrap();
 
         let rc_channels2 = RcChannelsPacked([1500; 16]);
         let raw_packet2 = rc_channels2
-            .into_raw_packet_with_sync(PacketAddress::Broadcast as u8)
+            .to_raw_packet_with_sync(PacketAddress::Broadcast as u8)
             .unwrap();
 
         let rc_channels3 = RcChannelsPacked([2000; 16]); // Some other address here ---v
         let raw_packet3 = rc_channels3
-            .into_raw_packet_with_sync(PacketAddress::Reserved1 as u8)
+            .to_raw_packet_with_sync(PacketAddress::Reserved1 as u8)
             .unwrap();
 
         let result1 = reader
@@ -644,7 +643,7 @@ mod tests {
         let addr = PacketAddress::Transmitter;
         let packet = RcChannelsPacked(channels);
 
-        let raw = packet.into_raw_packet_with_sync(addr as u8).unwrap();
+        let raw = packet.to_raw_packet_with_sync(addr as u8).unwrap();
 
         let mut expected_data: [u8; 26] = [0xff; 26];
         expected_data[0] = 0xee;
@@ -671,7 +670,7 @@ mod tests {
             downlink_snr: -108,
         };
 
-        let raw = packet.into_raw_packet_with_sync(addr as u8).unwrap();
+        let raw = packet.to_raw_packet_with_sync(addr as u8).unwrap();
 
         let expected_data = [0xc8, 12, 0x14, 16, 19, 99, 151, 1, 2, 3, 8, 88, 148, 252];
         assert_eq!(raw.as_slice(), expected_data.as_slice())

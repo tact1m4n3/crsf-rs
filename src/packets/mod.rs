@@ -11,6 +11,7 @@ pub use link_statistics::LinkStatistics;
 
 /// A trait encapsulationg a CRSF payload. This trait is used to encode and decode payloads
 /// to and from byte slices, as well as convert into a [`RawPacket`]s for transmitting elsewhere.
+#[allow(clippy::len_without_is_empty)]
 pub trait Payload
 where
     Self: Sized,
@@ -34,15 +35,15 @@ where
 
     /// Construct a new `RawPacket` from a `Packet`. This adds the `sync`, `len`, `type` bytes,
     /// and calculates and adds the `crc` byte. This constructor assumes the given packet is valid.
-    fn into_raw_packet(&self) -> Result<RawPacket, CrsfError> {
-        self.into_raw_packet_with_sync(CRSF_SYNC_BYTE)
+    fn to_raw_packet(&self) -> Result<RawPacket, CrsfError> {
+        self.to_raw_packet_with_sync(CRSF_SYNC_BYTE)
     }
 
     /// Construct a new `RawPacket` from a `Packet`. This adds the given `sync` byte, `len`, `type` bytes,
     /// and calculates and adds the `crc` byte. This constructor assumes the given packet is valid.
     /// Note that changing the sync byte is not officially supported by the CRSF protocol, but is used
     /// in some implementations as an "address" byte.
-    fn into_raw_packet_with_sync(&self, sync_byte: u8) -> Result<RawPacket, CrsfError> {
+    fn to_raw_packet_with_sync(&self, sync_byte: u8) -> Result<RawPacket, CrsfError> {
         let mut raw = RawPacket {
             buf: [0u8; CRSF_MAX_LEN],
             len: 4 + Self::LEN,

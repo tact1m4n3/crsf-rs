@@ -94,7 +94,7 @@ mod tests {
             downlink_snr: -68,
         };
 
-        let raw = original.into_raw_packet().unwrap();
+        let raw = original.to_raw_packet().unwrap();
 
         let data = raw.payload().unwrap();
 

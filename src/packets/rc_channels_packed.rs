@@ -99,7 +99,7 @@ mod tests {
             983, 992, 174, 992, 191, 191, 191, 191, 997, 997, 997, 997, 0, 0, 1811, 1811,
         ]);
 
-        let raw = original.into_raw_packet().unwrap();
+        let raw = original.to_raw_packet().unwrap();
 
         let data = raw.payload().unwrap();
 
