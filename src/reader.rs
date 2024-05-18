@@ -19,7 +19,6 @@ enum ReadState {
     Reading,
 }
 
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ReaderConfig {
     /// Sync byte to use for finding the start of a frame. Default is `0xC8`
     sync: PacketAddressFlags,
