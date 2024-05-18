@@ -35,3 +35,21 @@ impl<'a> BytesReader<'a> {
         data
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::buffer::BytesReader;
+
+    #[test]
+    fn test_bytes_reader() {
+        let bytes: &[u8] = &[1, 2, 3, 4, 5];
+        let mut reader = BytesReader::new(bytes);
+        assert_eq!(reader.next(), Some(1));
+        assert_eq!(reader.remaining(), &[2, 3, 4, 5]);
+        assert_eq!(reader.next_n(2), &[2, 3]);
+        assert_eq!(reader.remaining(), &[4, 5]);
+        assert_eq!(reader.next(), Some(4));
+        assert_eq!(reader.next(), Some(5));
+        assert_eq!(reader.remaining(), &[]);
+    }
+}

@@ -109,3 +109,47 @@ impl RawPacket {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{LinkStatistics, PacketAddress, Payload, RcChannelsPacked};
+
+    #[test]
+    fn test_rc_channels_packet_dump() {
+        let channels: [u16; 16] = [0x7FF; 16];
+        let addr = PacketAddress::Transmitter;
+        let packet = RcChannelsPacked(channels);
+
+        let raw = packet.to_raw_packet_with_sync(addr as u8).unwrap();
+
+        let mut expected_data: [u8; 26] = [0xff; 26];
+        expected_data[0] = 0xee;
+        expected_data[1] = 24;
+        expected_data[2] = 0x16;
+        expected_data[25] = 143;
+        assert_eq!(&raw.as_slice(), &expected_data)
+    }
+
+    #[test]
+    fn test_link_statistics_packet_dump() {
+        let addr = PacketAddress::FlightController;
+
+        let packet = LinkStatistics {
+            uplink_rssi_1: 16,
+            uplink_rssi_2: 19,
+            uplink_link_quality: 99,
+            uplink_snr: -105,
+            active_antenna: 1,
+            rf_mode: 2,
+            uplink_tx_power: 3,
+            downlink_rssi: 8,
+            downlink_link_quality: 88,
+            downlink_snr: -108,
+        };
+
+        let raw = packet.to_raw_packet_with_sync(addr as u8).unwrap();
+
+        let expected_data = [0xc8, 12, 0x14, 16, 19, 99, 151, 1, 2, 3, 8, 88, 148, 252];
+        assert_eq!(raw.as_slice(), expected_data.as_slice())
+    }
+}

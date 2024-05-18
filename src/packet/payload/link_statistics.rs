@@ -100,16 +100,16 @@ mod tests {
 
         let data = raw.payload().unwrap();
 
-        assert_eq!(data[0], 100_u8.to_le());
-        assert_eq!(data[1], 98_u8.to_le());
-        assert_eq!(data[2], 100_u8.to_le());
-        assert_eq!(data[3], -(65_i8.to_le()) as u8);
-        assert_eq!(data[4], 0_u8.to_le());
-        assert_eq!(data[5], 1_u8.to_le());
-        assert_eq!(data[6], 2_u8.to_le());
-        assert_eq!(data[7], 120_u8.to_le());
-        assert_eq!(data[8], 98_u8.to_le());
-        assert_eq!(data[9], -(68_i8.to_le()) as u8);
+        assert_eq!(data[0], 100_u8);
+        assert_eq!(data[1], 98_u8);
+        assert_eq!(data[2], 100_u8);
+        assert_eq!(data[3], -(65_i8) as u8);
+        assert_eq!(data[4], 0_u8);
+        assert_eq!(data[5], 1_u8);
+        assert_eq!(data[6], 2_u8);
+        assert_eq!(data[7], 120_u8);
+        assert_eq!(data[8], 98_u8);
+        assert_eq!(data[9], -(68_i8) as u8);
 
         let parsed = LinkStatistics::decode(&data).unwrap();
 

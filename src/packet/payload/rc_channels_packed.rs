@@ -102,11 +102,9 @@ mod tests {
         ]);
 
         let raw = original.to_raw_packet().unwrap();
-
         let data = raw.payload().unwrap();
 
         let parsed = RcChannelsPacked::decode(&data).unwrap();
-
         assert_eq!(parsed, original);
     }
 }
