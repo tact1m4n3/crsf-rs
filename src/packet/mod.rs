@@ -1,7 +1,22 @@
-use crate::{
-    address::PacketAddress, CrsfError, LinkStatistics, Packet, PacketType, Payload,
-    RcChannelsPacked, CRSF_MAX_LEN,
-};
+use crate::{Error, CRSF_MAX_LEN};
+
+mod address;
+pub use address::*;
+
+mod typ;
+pub use typ::*;
+
+mod payload;
+pub use payload::*;
+
+/// Represents a packet
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Packet {
+    LinkStatistics(LinkStatistics),
+    RcChannelsPacked(RcChannelsPacked),
+}
 
 /// Represents a raw packet (not parsed)
 #[derive(Clone, Copy, Debug)]
@@ -20,7 +35,7 @@ impl RawPacket {
 
     /// Create a new RawPacket from the given slice. The slice must be
     /// at most `CRSF_MAX_LEN`bytes long.
-    pub fn new(slice: &[u8]) -> Result<RawPacket, CrsfError> {
+    pub fn new(slice: &[u8]) -> Result<RawPacket, Error> {
         let mut packet = RawPacket {
             buf: [0u8; CRSF_MAX_LEN],
             len: slice.len(),
@@ -29,7 +44,7 @@ impl RawPacket {
         packet
             .buf
             .get_mut(..slice.len())
-            .ok_or(CrsfError::BufferError)?
+            .ok_or(Error::BufferError)?
             .copy_from_slice(slice);
 
         Ok(packet)
@@ -41,13 +56,13 @@ impl RawPacket {
     }
 
     /// Get the payload section of the raw packet
-    pub fn payload(&self) -> Result<&[u8], CrsfError> {
+    pub fn payload(&self) -> Result<&[u8], Error> {
         match (self.is_extended(), self.as_slice()) {
             // Skip the [sync], [len], [type], [src], [dst] and [crc] bytes
             (true, [_, _, _, _, _, payload @ .., _]) => Ok(payload),
             // Skip the [sync], [len], [type] and [crc] bytes
             (false, [_, _, _, payload @ .., _]) => Ok(payload),
-            _ => Err(CrsfError::BufferError),
+            _ => Err(Error::BufferError),
         }
     }
 
@@ -64,24 +79,24 @@ impl RawPacket {
     /// Get the source and destination addresses of the packet.
     /// This is only valid for extended packets, and will
     /// return an error otherwise
-    pub fn dst_src(&self) -> Result<(PacketAddress, PacketAddress), CrsfError> {
+    pub fn dst_src(&self) -> Result<(PacketAddress, PacketAddress), Error> {
         if self.is_extended() {
             if let [_, _, _, dst, src, ..] = self.as_slice() {
                 match (PacketAddress::try_from(*dst), PacketAddress::try_from(*src)) {
                     (Ok(dst), Ok(src)) => Ok((dst, src)),
-                    _ => Err(CrsfError::InvalidPayload),
+                    _ => Err(Error::InvalidPayload),
                 }
             } else {
-                Err(CrsfError::BufferError)
+                Err(Error::BufferError)
             }
         } else {
             // NOTE Not sure what the error here should be
-            Err(CrsfError::UnknownType { typ: 0 })
+            Err(Error::UnknownType { typ: 0 })
         }
     }
 
     /// Convert the raw packet into a parsed packet
-    pub fn into_packet(&self) -> Result<Packet, CrsfError> {
+    pub fn to_packet(&self) -> Result<Packet, Error> {
         let payload = self.payload()?;
         match PacketType::try_from(self.buf[2]) {
             Ok(PacketType::RcChannelsPacked) => {
@@ -90,7 +105,7 @@ impl RawPacket {
             Ok(PacketType::LinkStatistics) => {
                 LinkStatistics::decode(payload).map(Packet::LinkStatistics)
             }
-            _ => Err(CrsfError::UnknownType { typ: self.buf[2] }),
+            _ => Err(Error::UnknownType { typ: self.buf[2] }),
         }
     }
 }

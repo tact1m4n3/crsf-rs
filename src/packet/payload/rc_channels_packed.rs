@@ -1,11 +1,13 @@
 //! RcChannelsPacked packet and related functions/implementations
 
-use super::Payload;
-use crate::to_array::{mut_array_start, ref_array_start};
-use crate::{CrsfError, PacketType};
+use crate::{
+    to_array::{mut_array_start, ref_array_start},
+    Error, PacketType, Payload,
+};
 
 /// Represents a RcChannelsPacked packet
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RcChannelsPacked(pub [u16; 16]);
 
 const LEN: usize = RcChannelsPacked::LEN;
@@ -73,14 +75,14 @@ impl Payload for RcChannelsPacked {
         PacketType::RcChannelsPacked
     }
 
-    fn decode(buf: &[u8]) -> Result<Self, CrsfError> {
-        let data = ref_array_start(buf).ok_or(CrsfError::BufferError)?;
+    fn decode(buf: &[u8]) -> Result<Self, Error> {
+        let data = ref_array_start(buf).ok_or(Error::BufferError)?;
 
         Ok(raw_decode(data))
     }
 
-    fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], CrsfError> {
-        let data = mut_array_start(buf).ok_or(CrsfError::BufferError)?;
+    fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], Error> {
+        let data = mut_array_start(buf).ok_or(Error::BufferError)?;
 
         raw_encode(self, data);
 

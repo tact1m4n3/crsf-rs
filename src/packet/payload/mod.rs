@@ -1,13 +1,13 @@
 //! This module contains defines the behavior of a Payload, and provides implementations for
 //! various payloads used in the CRSF protocol.
 
-use crate::{crc8::Crc8, CrsfError, PacketType, RawPacket, CRSF_MAX_LEN, CRSF_SYNC_BYTE};
+use crate::{crc8::Crc8, Error, PacketType, RawPacket, CRSF_MAX_LEN, CRSF_SYNC_BYTE};
 
-pub mod rc_channels_packed;
-pub use rc_channels_packed::RcChannelsPacked;
-
-pub mod link_statistics;
+mod link_statistics;
 pub use link_statistics::LinkStatistics;
+
+mod rc_channels_packed;
+pub use rc_channels_packed::RcChannelsPacked;
 
 /// A trait encapsulationg a CRSF payload. This trait is used to encode and decode payloads
 /// to and from byte slices, as well as convert into a [`RawPacket`]s for transmitting elsewhere.
@@ -28,14 +28,14 @@ where
     fn packet_type(&self) -> PacketType;
 
     /// Decode a payload from a slice. This must not include the `sync`, `len`, `type`, or `crc` bytes.
-    fn decode(buf: &[u8]) -> Result<Self, CrsfError>;
+    fn decode(buf: &[u8]) -> Result<Self, Error>;
 
     /// Encode a payload into a mutable slice. This does not include the `sync`, `len`, `type`, or `crc` bytes.
-    fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], CrsfError>;
+    fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], Error>;
 
     /// Construct a new `RawPacket` from a `Packet`. This adds the `sync`, `len`, `type` bytes,
     /// and calculates and adds the `crc` byte. This constructor assumes the given packet is valid.
-    fn to_raw_packet(&self) -> Result<RawPacket, CrsfError> {
+    fn to_raw_packet(&self) -> Result<RawPacket, Error> {
         self.to_raw_packet_with_sync(CRSF_SYNC_BYTE)
     }
 
@@ -43,7 +43,7 @@ where
     /// and calculates and adds the `crc` byte. This constructor assumes the given packet is valid.
     /// Note that changing the sync byte is not officially supported by the CRSF protocol, but is used
     /// in some implementations as an "address" byte.
-    fn to_raw_packet_with_sync(&self, sync_byte: u8) -> Result<RawPacket, CrsfError> {
+    fn to_raw_packet_with_sync(&self, sync_byte: u8) -> Result<RawPacket, Error> {
         let mut raw = RawPacket {
             buf: [0u8; CRSF_MAX_LEN],
             len: 4 + Self::LEN,

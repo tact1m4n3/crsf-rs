@@ -1,11 +1,13 @@
 //! LinkStatistics packet and related functions/implementations
 
-use super::Payload;
-use crate::to_array::{mut_array_start, ref_array_start};
-use crate::{CrsfError, PacketType};
+use crate::{
+    to_array::{mut_array_start, ref_array_start},
+    Error, PacketType, Payload,
+};
 
 /// Represents a LinkStatistics packet
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
 pub struct LinkStatistics {
     pub uplink_rssi_1: u8,
@@ -59,14 +61,14 @@ impl Payload for LinkStatistics {
         PacketType::LinkStatistics
     }
 
-    fn decode(buf: &[u8]) -> Result<Self, crate::CrsfError> {
-        let data: &[u8; LEN] = ref_array_start(buf).ok_or(CrsfError::BufferError)?;
+    fn decode(buf: &[u8]) -> Result<Self, Error> {
+        let data: &[u8; LEN] = ref_array_start(buf).ok_or(Error::BufferError)?;
 
         Ok(raw_decode(data))
     }
 
-    fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], crate::CrsfError> {
-        let data: &mut [u8; LEN] = mut_array_start(buf).ok_or(CrsfError::BufferError)?;
+    fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], Error> {
+        let data: &mut [u8; LEN] = mut_array_start(buf).ok_or(Error::BufferError)?;
 
         raw_encode(self, data);
 
