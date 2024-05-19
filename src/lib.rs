@@ -31,11 +31,13 @@
 
 #[cfg(feature = "defmt")]
 use defmt;
-
 use snafu::prelude::*;
 
-mod packet;
-pub use packet::*;
+pub mod packet;
+pub use packet::{
+    AnyPayload, ExtendedPayload, LinkStatistics, Packet, PacketAddress, PacketType, Payload, RawPacket,
+    RcChannelsPacked,
+};
 
 mod reader;
 pub use reader::*;

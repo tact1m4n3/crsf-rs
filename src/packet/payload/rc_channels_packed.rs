@@ -1,16 +1,11 @@
 //! RcChannelsPacked packet and related functions/implementations
 
-use crate::{
-    to_array::{mut_array_start, ref_array_start},
-    Error, PacketType, Payload,
-};
-
 /// Represents a RcChannelsPacked packet
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RcChannelsPacked(pub [u16; 16]);
 
-const LEN: usize = RcChannelsPacked::LEN;
+pub const LEN: usize = 22;
 
 /// The raw decoder (parser) for the RcChannelsPacked packet.
 pub fn raw_decode(data: &[u8; LEN]) -> RcChannelsPacked {
@@ -68,32 +63,12 @@ pub fn raw_encode(ch: &RcChannelsPacked, data: &mut [u8; LEN]) {
     data[21] = (ch[15] >> 3) as u8;
 }
 
-impl Payload for RcChannelsPacked {
-    const LEN: usize = 22;
-
-    fn packet_type(&self) -> PacketType {
-        PacketType::RcChannelsPacked
-    }
-
-    fn decode(buf: &[u8]) -> Result<Self, Error> {
-        let data = ref_array_start(buf).ok_or(Error::BufferError)?;
-
-        Ok(raw_decode(data))
-    }
-
-    fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], Error> {
-        let data = mut_array_start(buf).ok_or(Error::BufferError)?;
-
-        raw_encode(self, data);
-
-        Ok(data)
-    }
-}
+impl_payload!(RcChannelsPacked, LEN);
 
 #[cfg(test)]
 mod tests {
     use super::RcChannelsPacked;
-    use crate::Payload;
+    use crate::{AnyPayload, Payload};
 
     #[test]
     fn rc_channels_packed_encode_decode() {
@@ -104,7 +79,7 @@ mod tests {
         let raw = original.to_raw_packet().unwrap();
         let data = raw.payload().unwrap();
 
-        let parsed = RcChannelsPacked::decode(&data).unwrap();
+        let parsed = RcChannelsPacked::decode(data).unwrap();
         assert_eq!(parsed, original);
     }
 }

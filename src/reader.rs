@@ -1,6 +1,5 @@
-use crate::{
-    crc8::Crc8, Error, Packet, PacketType, RawPacket, CRSF_HEADER_LEN, CRSF_MAX_LEN, CRSF_SYNC_BYTE,
-};
+use crate::crc8::Crc8;
+use crate::{Error, Packet, PacketType, RawPacket, CRSF_HEADER_LEN, CRSF_MAX_LEN, CRSF_SYNC_BYTE};
 
 /// Represents a state machine for reading a CRSF packet
 ///
@@ -70,10 +69,7 @@ impl PacketReader {
     }
 
     /// Reads the first packet from the buffer
-    pub fn push_bytes<'r, 'b>(
-        &'r mut self,
-        bytes: &'b [u8],
-    ) -> (Option<Result<&'r RawPacket, Error>>, &'b [u8]) {
+    pub fn push_bytes<'r, 'b>(&'r mut self, bytes: &'b [u8]) -> (Option<Result<&'r RawPacket, Error>>, &'b [u8]) {
         let mut reader = crate::buffer::BytesReader::new(bytes);
         let packet = 'state_machine: loop {
             match self.state {
@@ -219,14 +215,7 @@ impl<'a, 'b> Iterator for IterPackets<'a, 'b> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Error;
-    use crate::Packet;
-    use crate::PacketReader;
-    use crate::PacketType;
-    use crate::Payload;
-    use crate::RcChannelsPacked;
-    use crate::Config;
-    use crate::CRSF_SYNC_BYTE;
+    use crate::{Config, Error, Packet, PacketReader, PacketType, Payload, RcChannelsPacked, CRSF_SYNC_BYTE};
 
     #[test]
     fn test_packet_reader_waiting_for_sync_byte() {
@@ -236,15 +225,9 @@ mod tests {
 
         for _ in 0..2 {
             // Garbage
-            assert!(matches!(
-                reader.push_bytes(&[1, 2, 3]).0,
-                Some(Err(Error::NoSyncByte))
-            ));
+            assert!(matches!(reader.push_bytes(&[1, 2, 3]).0, Some(Err(Error::NoSyncByte))));
             // More garbage
-            assert!(matches!(
-                reader.push_bytes(&[254, 255]).0,
-                Some(Err(Error::NoSyncByte))
-            ));
+            assert!(matches!(reader.push_bytes(&[254, 255]).0, Some(Err(Error::NoSyncByte))));
             // Sync
             assert!(reader.push_bytes(&[CRSF_SYNC_BYTE]).0.is_none());
             // Len
@@ -322,19 +305,13 @@ mod tests {
         });
 
         let rc_channels1 = RcChannelsPacked([1000; 16]);
-        let raw_packet1 = rc_channels1
-            .to_raw_packet_with_sync(0xC8)
-            .unwrap();
+        let raw_packet1 = rc_channels1.to_raw_packet_with_sync(0xC8).unwrap();
 
         let rc_channels2 = RcChannelsPacked([1500; 16]);
-        let raw_packet2 = rc_channels2
-            .to_raw_packet_with_sync(0x00)
-            .unwrap();
+        let raw_packet2 = rc_channels2.to_raw_packet_with_sync(0x00).unwrap();
 
         let rc_channels3 = RcChannelsPacked([2000; 16]); // Some other address here ---v
-        let raw_packet3 = rc_channels3
-            .to_raw_packet_with_sync(0x8A)
-            .unwrap();
+        let raw_packet3 = rc_channels3.to_raw_packet_with_sync(0x8A).unwrap();
 
         let result1 = reader
             .push_bytes(raw_packet1.as_slice())
@@ -384,10 +361,7 @@ mod tests {
             239,
         ];
 
-        let result = reader
-            .push_bytes(data.as_slice())
-            .0
-            .expect("result expected");
+        let result = reader.push_bytes(data.as_slice()).0.expect("result expected");
 
         let raw_packet = result.expect("raw packet expected");
         let packet = raw_packet.to_packet().expect("packet expected");
@@ -409,18 +383,12 @@ mod tests {
         // Len
         assert!(reader.push_bytes(&[24]).0.is_none());
         // Type
-        assert!(reader
-            .push_bytes(&[PacketType::RcChannelsPacked as u8])
-            .0
-            .is_none());
+        assert!(reader.push_bytes(&[PacketType::RcChannelsPacked as u8]).0.is_none());
         // Payload
         assert!(reader.push_bytes(&[0; 22]).0.is_none());
         // Checksum
         let result = reader.push_bytes(&[42]).0.expect("result expected");
 
-        assert!(matches!(
-            result,
-            Err(Error::CrcMismatch { act: 239, exp: 42 })
-        ));
+        assert!(matches!(result, Err(Error::CrcMismatch { act: 239, exp: 42 })));
     }
 }

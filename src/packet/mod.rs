@@ -6,8 +6,8 @@ pub use address::PacketAddress;
 mod typ;
 pub use typ::PacketType;
 
-mod payload;
-pub use payload::*;
+pub mod payload;
+pub use payload::{AnyPayload, DevicePing, ExtendedPayload, LinkStatistics, Payload, RcChannelsPacked};
 
 /// Represents a packet
 #[non_exhaustive]
@@ -16,6 +16,18 @@ pub use payload::*;
 pub enum Packet {
     LinkStatistics(LinkStatistics),
     RcChannelsPacked(RcChannelsPacked),
+    Extended {
+        src: PacketAddress,
+        dst: PacketAddress,
+        packet: ExtendedPacket,
+    },
+}
+
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ExtendedPacket {
+    DevicePing(DevicePing),
 }
 
 /// Represents a raw packet (not parsed)
@@ -58,7 +70,7 @@ impl RawPacket {
     /// Get the payload section of the raw packet
     pub fn payload(&self) -> Result<&[u8], Error> {
         match (self.is_extended(), self.as_slice()) {
-            // Skip the [sync], [len], [type], [src], [dst] and [crc] bytes
+            // Skip the [sync], [len], [type], [dst], [src] and [crc] bytes
             (true, [_, _, _, _, _, payload @ .., _]) => Ok(payload),
             // Skip the [sync], [len], [type] and [crc] bytes
             (false, [_, _, _, payload @ .., _]) => Ok(payload),
@@ -99,31 +111,36 @@ impl RawPacket {
     pub fn to_packet(&self) -> Result<Packet, Error> {
         let payload = self.payload()?;
         match PacketType::try_from(self.buf[2]) {
-            Ok(PacketType::RcChannelsPacked) => {
-                RcChannelsPacked::decode(payload).map(Packet::RcChannelsPacked)
-            }
-            Ok(PacketType::LinkStatistics) => {
-                LinkStatistics::decode(payload).map(Packet::LinkStatistics)
+            Ok(PacketType::RcChannelsPacked) => RcChannelsPacked::decode(payload).map(Packet::RcChannelsPacked),
+            Ok(PacketType::LinkStatistics) => LinkStatistics::decode(payload).map(Packet::LinkStatistics),
+            Ok(typ) if typ.is_extended() => {
+                let (dst, src) = self.dst_src()?;
+
+                match typ {
+                    PacketType::DevicePing => DevicePing::decode(payload).map(ExtendedPacket::DevicePing),
+                    _ => Err(Error::UnknownType { typ: self.buf[2] }),
+                }
+                .map(|packet| Packet::Extended { src, dst, packet })
             }
             _ => Err(Error::UnknownType { typ: self.buf[2] }),
         }
     }
 }
 
+// TODO: write test for DevicePing and move each test in it's payload file
 #[cfg(test)]
 mod tests {
-    use crate::{LinkStatistics, PacketAddress, Payload, RcChannelsPacked};
+    use crate::{LinkStatistics, Payload, RcChannelsPacked, CRSF_SYNC_BYTE};
 
     #[test]
     fn test_rc_channels_packet_dump() {
         let channels: [u16; 16] = [0x7FF; 16];
-        let addr = PacketAddress::Transmitter;
         let packet = RcChannelsPacked(channels);
 
-        let raw = packet.to_raw_packet_with_sync(addr as u8).unwrap();
+        let raw = packet.to_raw_packet().unwrap();
 
         let mut expected_data: [u8; 26] = [0xff; 26];
-        expected_data[0] = 0xee;
+        expected_data[0] = CRSF_SYNC_BYTE;
         expected_data[1] = 24;
         expected_data[2] = 0x16;
         expected_data[25] = 143;
@@ -132,8 +149,6 @@ mod tests {
 
     #[test]
     fn test_link_statistics_packet_dump() {
-        let addr = PacketAddress::FlightController;
-
         let packet = LinkStatistics {
             uplink_rssi_1: 16,
             uplink_rssi_2: 19,
@@ -147,9 +162,9 @@ mod tests {
             downlink_snr: -108,
         };
 
-        let raw = packet.to_raw_packet_with_sync(addr as u8).unwrap();
+        let raw = packet.to_raw_packet().unwrap();
 
-        let expected_data = [0xc8, 12, 0x14, 16, 19, 99, 151, 1, 2, 3, 8, 88, 148, 252];
+        let expected_data = [CRSF_SYNC_BYTE, 12, 0x14, 16, 19, 99, 151, 1, 2, 3, 8, 88, 148, 252];
         assert_eq!(raw.as_slice(), expected_data.as_slice())
     }
 }

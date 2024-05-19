@@ -1,10 +1,5 @@
 //! LinkStatistics packet and related functions/implementations
 
-use crate::{
-    to_array::{mut_array_start, ref_array_start},
-    Error, PacketType, Payload,
-};
-
 /// Represents a LinkStatistics packet
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -22,7 +17,7 @@ pub struct LinkStatistics {
     pub downlink_snr: i8,
 }
 
-const LEN: usize = LinkStatistics::LEN;
+pub const LEN: usize = 10;
 
 /// The raw decoder (parser) for the LinkStatistics packet.
 pub fn raw_decode(data: &[u8; LEN]) -> LinkStatistics {
@@ -54,32 +49,12 @@ pub fn raw_encode(link_statistics: &LinkStatistics, data: &mut [u8; LEN]) {
     data[9] = link_statistics.downlink_snr as u8;
 }
 
-impl Payload for LinkStatistics {
-    const LEN: usize = 10;
-
-    fn packet_type(&self) -> PacketType {
-        PacketType::LinkStatistics
-    }
-
-    fn decode(buf: &[u8]) -> Result<Self, Error> {
-        let data: &[u8; LEN] = ref_array_start(buf).ok_or(Error::BufferError)?;
-
-        Ok(raw_decode(data))
-    }
-
-    fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], Error> {
-        let data: &mut [u8; LEN] = mut_array_start(buf).ok_or(Error::BufferError)?;
-
-        raw_encode(self, data);
-
-        Ok(data)
-    }
-}
+impl_payload!(LinkStatistics, LEN);
 
 #[cfg(test)]
 mod tests {
     use super::LinkStatistics;
-    use crate::Payload;
+    use crate::{AnyPayload, Payload};
 
     #[test]
     fn test_link_statistics_write_and_parse() {
@@ -111,7 +86,7 @@ mod tests {
         assert_eq!(data[8], 98_u8);
         assert_eq!(data[9], -(68_i8) as u8);
 
-        let parsed = LinkStatistics::decode(&data).unwrap();
+        let parsed = LinkStatistics::decode(data).unwrap();
 
         assert_eq!(parsed.uplink_rssi_1, 100);
         assert_eq!(parsed.uplink_rssi_2, 98);

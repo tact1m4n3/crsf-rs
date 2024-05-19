@@ -1,5 +1,5 @@
 /// Create a new look-up table for the CRC8 algorithm.
-pub const fn new_crc8_lut() -> [u8; 256] {
+pub(crate) const fn new_crc8_lut() -> [u8; 256] {
     let mut crc_table = [0u8; 256];
 
     let mut i = 0;
@@ -24,8 +24,7 @@ pub const fn new_crc8_lut() -> [u8; 256] {
 const CRC8_LUT: [u8; 256] = new_crc8_lut();
 
 /// Software based CRC8 implementation.
-#[derive(Debug)]
-pub struct Crc8 {
+pub(crate) struct Crc8 {
     crc_val: u8,
     crc_table: &'static [u8; 256],
 }

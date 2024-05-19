@@ -1,4 +1,5 @@
-use std::{env, io, time::Duration};
+use std::time::Duration;
+use std::{env, io};
 
 use crsf::{Config, Packet, PacketReader};
 
