@@ -1,11 +1,12 @@
 //! RcChannelsPacked packet and related functions/implementations
 
+/// RcChannelsPacked payload length
+pub const LEN: usize = 22;
+
 /// Represents a RcChannelsPacked packet
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RcChannelsPacked(pub [u16; 16]);
-
-pub const LEN: usize = 22;
 
 /// The raw decoder (parser) for the RcChannelsPacked packet.
 pub fn raw_decode(data: &[u8; LEN]) -> RcChannelsPacked {
@@ -61,25 +62,4 @@ pub fn raw_encode(ch: &RcChannelsPacked, data: &mut [u8; LEN]) {
     data[19] = (ch[13] >> 9 | ch[14] << 2) as u8;
     data[20] = (ch[14] >> 6 | ch[15] << 5) as u8;
     data[21] = (ch[15] >> 3) as u8;
-}
-
-impl_payload!(RcChannelsPacked, LEN);
-
-#[cfg(test)]
-mod tests {
-    use super::RcChannelsPacked;
-    use crate::{AnyPayload, Payload};
-
-    #[test]
-    fn rc_channels_packed_encode_decode() {
-        let original = RcChannelsPacked([
-            983, 992, 174, 992, 191, 191, 191, 191, 997, 997, 997, 997, 0, 0, 1811, 1811,
-        ]);
-
-        let raw = original.to_raw_packet().unwrap();
-        let data = raw.payload().unwrap();
-
-        let parsed = RcChannelsPacked::decode(data).unwrap();
-        assert_eq!(parsed, original);
-    }
 }

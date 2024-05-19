@@ -67,89 +67,59 @@ impl RawPacket {
         &self.buf[..self.len.min(CRSF_MAX_LEN)]
     }
 
-    /// Get the payload section of the raw packet
-    pub fn payload(&self) -> Result<&[u8], Error> {
-        match (self.is_extended(), self.as_slice()) {
-            // Skip the [sync], [len], [type], [dst], [src] and [crc] bytes
-            (true, [_, _, _, _, _, payload @ .., _]) => Ok(payload),
-            // Skip the [sync], [len], [type] and [crc] bytes
-            (false, [_, _, _, payload @ .., _]) => Ok(payload),
-            _ => Err(Error::BufferError),
-        }
-    }
-
-    /// Check if the packet is an extended format packet
-    pub fn is_extended(&self) -> bool {
-        // Skip the [sync], [len], [type] and [crc] bytes
-        if let [_, _, ty, ..] = self.as_slice() {
-            ty >= &0x28
-        } else {
-            false
-        }
-    }
-
-    /// Get the source and destination addresses of the packet.
-    /// This is only valid for extended packets, and will
-    /// return an error otherwise
-    pub fn dst_src(&self) -> Result<(PacketAddress, PacketAddress), Error> {
-        if self.is_extended() {
-            if let [_, _, _, dst, src, ..] = self.as_slice() {
-                match (PacketAddress::try_from(*dst), PacketAddress::try_from(*src)) {
-                    (Ok(dst), Ok(src)) => Ok((dst, src)),
-                    _ => Err(Error::InvalidPayload),
-                }
-            } else {
-                Err(Error::BufferError)
-            }
-        } else {
-            // NOTE Not sure what the error here should be
-            Err(Error::UnknownType { typ: 0 })
-        }
-    }
-
     /// Convert the raw packet into a parsed packet
     pub fn to_packet(&self) -> Result<Packet, Error> {
-        let payload = self.payload()?;
-        match PacketType::try_from(self.buf[2]) {
-            Ok(PacketType::RcChannelsPacked) => RcChannelsPacked::decode(payload).map(Packet::RcChannelsPacked),
-            Ok(PacketType::LinkStatistics) => LinkStatistics::decode(payload).map(Packet::LinkStatistics),
-            Ok(typ) if typ.is_extended() => {
-                let (dst, src) = self.dst_src()?;
-
-                match typ {
-                    PacketType::DevicePing => DevicePing::decode(payload).map(ExtendedPacket::DevicePing),
-                    _ => Err(Error::UnknownType { typ: self.buf[2] }),
+        if let [_, _, typ, payload @ .., _] = self.as_slice() {
+            let typ = PacketType::try_from(*typ).map_err(|_| Error::InvalidType { typ: *typ })?;
+            match typ {
+                PacketType::RcChannelsPacked => RcChannelsPacked::decode(payload).map(Packet::RcChannelsPacked),
+                PacketType::LinkStatistics => LinkStatistics::decode(payload).map(Packet::LinkStatistics),
+                typ if typ.is_extended() => {
+                    if let [dst, src, payload @ ..] = payload {
+                        let dst = PacketAddress::try_from(*dst).map_err(|_| Error::InvalidAddress { addr: *dst })?;
+                        let src = PacketAddress::try_from(*src).map_err(|_| Error::InvalidAddress { addr: *src })?;
+                        match typ {
+                            PacketType::DevicePing => DevicePing::decode(payload).map(ExtendedPacket::DevicePing),
+                            _ => Err(Error::UnimplementedType { typ }),
+                        }
+                        .map(|packet| Packet::Extended { src, dst, packet })
+                    } else {
+                        Err(Error::BufferError)
+                    }
                 }
-                .map(|packet| Packet::Extended { src, dst, packet })
+                typ => Err(Error::UnimplementedType { typ }),
             }
-            _ => Err(Error::UnknownType { typ: self.buf[2] }),
+        } else {
+            Err(Error::BufferError)
         }
     }
 }
 
-// TODO: write test for DevicePing and move each test in it's payload file
 #[cfg(test)]
 mod tests {
-    use crate::{LinkStatistics, Payload, RcChannelsPacked, CRSF_SYNC_BYTE};
+    use super::LinkStatistics;
+    use crate::packet::{DevicePing, ExtendedPacket};
+    use crate::{ExtendedPayload, Packet, PacketAddress, Payload, RcChannelsPacked, CRSF_SYNC_BYTE};
 
     #[test]
-    fn test_rc_channels_packet_dump() {
-        let channels: [u16; 16] = [0x7FF; 16];
-        let packet = RcChannelsPacked(channels);
+    fn test_rc_channels_packed_dump_and_parse() {
+        let orig = RcChannelsPacked([0x7FF; 16]);
 
-        let raw = packet.to_raw_packet().unwrap();
-
+        let raw = orig.to_raw_packet().unwrap();
         let mut expected_data: [u8; 26] = [0xff; 26];
         expected_data[0] = CRSF_SYNC_BYTE;
         expected_data[1] = 24;
         expected_data[2] = 0x16;
         expected_data[25] = 143;
-        assert_eq!(&raw.as_slice(), &expected_data)
+        assert_eq!(raw.as_slice(), expected_data.as_slice());
+
+        let parsed = raw.to_packet().unwrap();
+        assert!(matches!(parsed, Packet::RcChannelsPacked(parsed) if parsed == orig));
     }
 
     #[test]
-    fn test_link_statistics_packet_dump() {
-        let packet = LinkStatistics {
+    fn test_link_statistics_dump_and_parse() {
+        let orig = LinkStatistics {
             uplink_rssi_1: 16,
             uplink_rssi_2: 19,
             uplink_link_quality: 99,
@@ -162,9 +132,26 @@ mod tests {
             downlink_snr: -108,
         };
 
-        let raw = packet.to_raw_packet().unwrap();
-
+        let raw = orig.to_raw_packet().unwrap();
         let expected_data = [CRSF_SYNC_BYTE, 12, 0x14, 16, 19, 99, 151, 1, 2, 3, 8, 88, 148, 252];
-        assert_eq!(raw.as_slice(), expected_data.as_slice())
+        assert_eq!(raw.as_slice(), expected_data.as_slice());
+
+        let parsed = raw.to_packet().unwrap();
+        assert!(matches!(parsed, Packet::LinkStatistics(parsed) if parsed == orig));
+    }
+
+    #[test]
+    fn test_device_ping_dump_and_parse() {
+        let orig = DevicePing;
+
+        let raw = orig
+            .to_raw_packet(PacketAddress::Broadcast, PacketAddress::FlightController)
+            .unwrap();
+        // TODO: maybe check against an expected_data
+
+        let parsed = raw.to_packet().unwrap();
+        assert!(
+            matches!(parsed, Packet::Extended { dst: PacketAddress::Broadcast, src: PacketAddress::FlightController, packet: ExtendedPacket::DevicePing(parsed) } if parsed == orig)
+        );
     }
 }

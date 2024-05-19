@@ -116,7 +116,7 @@ impl PacketReader {
                     if let Some(type_byte) = self.raw.buf.get(2).copied() {
                         if self.config.type_check && PacketType::try_from(type_byte).is_err() {
                             self.reset();
-                            break Some(Err(Error::UnknownType { typ: type_byte }));
+                            break Some(Err(Error::InvalidType { typ: type_byte }));
                         }
                     }
 

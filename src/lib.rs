@@ -57,14 +57,20 @@ const CRSF_HEADER_LEN: usize = 2;
 pub enum Error {
     #[snafu(display("No sync byte was found in the given buffer"))]
     NoSyncByte,
-    #[snafu(display("Unknown type: {typ:#04x}, see PacketType enum for valid types"))]
-    UnknownType { typ: u8 },
-    #[snafu(display("Invalid length: {len}, should be between 2 and 62"))]
+    #[snafu(display("Invalid type {typ:#04x}, see PacketType enum"))]
+    InvalidType { typ: u8 },
+    #[snafu(display("Unimplemented type {typ:?}, should be implemented ASAP"))]
+    UnimplementedType { typ: PacketType },
+    #[snafu(display("Packet of type {typ:?} is not extended, see PacketType enum"))]
+    PacketNotExtended { typ: PacketType },
+    #[snafu(display("Invalid length {len}, should be between 2 and 62"))]
     InvalidLength { len: u8 },
+    #[snafu(display("Invalid address {addr:#04x}, see PacketAddress enum"))]
+    InvalidAddress { addr: u8 },
+    #[snafu(display("Packet has invalid payload data"))]
+    InvalidPayload,
     #[snafu(display("Crc checksum mismatch: expected {exp:#04x}, got {act:#04x}"))]
     CrcMismatch { exp: u8, act: u8 },
-    #[snafu(display("A general buffer error relating to the parser occured"))]
+    #[snafu(display("General buffer error"))]
     BufferError,
-    #[snafu(display("Invalid payload data, could not parse packet"))]
-    InvalidPayload,
 }

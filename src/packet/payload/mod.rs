@@ -4,9 +4,6 @@
 use crate::crc8::Crc8;
 use crate::{Error, PacketAddress, PacketType, RawPacket, CRSF_MAX_LEN, CRSF_SYNC_BYTE};
 
-#[macro_use]
-mod macros;
-
 pub mod link_statistics;
 pub use link_statistics::LinkStatistics;
 
@@ -149,3 +146,46 @@ pub trait ExtendedPayload: AnyPayload {
         Ok(raw)
     }
 }
+
+macro_rules! impl_any_payload {
+    ($module:ident, $name:ident) => {
+        impl $crate::packet::payload::AnyPayload for $module::$name {
+            const LEN: usize = $module::LEN;
+
+            fn packet_type(&self) -> $crate::packet::typ::PacketType {
+                $crate::packet::typ::PacketType::$name
+            }
+
+            fn decode(buf: &[u8]) -> Result<Self, $crate::Error> {
+                let data: &[u8; $module::LEN] =
+                    $crate::to_array::ref_array_start(buf).ok_or($crate::Error::BufferError)?;
+                Ok($module::raw_decode(data))
+            }
+
+            fn encode<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], $crate::Error> {
+                let data: &mut [u8; $module::LEN] =
+                    $crate::to_array::mut_array_start(buf).ok_or($crate::Error::BufferError)?;
+                $module::raw_encode(self, data);
+                Ok(data)
+            }
+        }
+    };
+}
+
+macro_rules! impl_payload {
+    ($module:ident, $name:ident) => {
+        impl_any_payload!($module, $name);
+        impl $crate::packet::payload::Payload for $module::$name {}
+    };
+}
+
+macro_rules! impl_extended_payload {
+    ($module:ident, $name:ident) => {
+        impl_any_payload!($module, $name);
+        impl $crate::packet::payload::ExtendedPayload for $module::$name {}
+    };
+}
+
+impl_payload!(link_statistics, LinkStatistics);
+impl_payload!(rc_channels_packed, RcChannelsPacked);
+impl_extended_payload!(device_ping, DevicePing);
