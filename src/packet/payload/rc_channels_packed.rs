@@ -8,6 +8,19 @@ pub const LEN: usize = 22;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RcChannelsPacked(pub [u16; 16]);
 
+impl RcChannelsPacked {
+    /// Minimum channel value
+    pub const CHANNEL_VALUE_MIN: u16 = 172;
+    /// Channel value coresponding to 1000 in betaflight
+    pub const CHANNEL_VALUE_1000: u16 = 191;
+    /// Middle channel value
+    pub const CHANNEL_VALUE_MID: u16 = 992;
+    /// Channel value coresponding to 2000 in betaflight
+    pub const CHANNEL_VALUE_2000: u16 = 1792;
+    /// Max channel value
+    pub const CHANNEL_VALUE_MAX: u16 = 1811;
+}
+
 /// The raw decoder (parser) for the RcChannelsPacked packet.
 pub fn raw_decode(data: &[u8; LEN]) -> RcChannelsPacked {
     // Convert u8 to u16 to make room for bit shifting

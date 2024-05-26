@@ -7,7 +7,7 @@ This crate provides a #\[no_std\] parser for the crossfire protocol.
 Check out the [examples](examples/) directory.
 
 ## Documentation
-Not available yet.
+Available on [docs.rs](https://docs.rs/crsf).
 
 ## License
 Licensed under the [MIT License](LICENSE).
