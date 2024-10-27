@@ -1,22 +1,28 @@
 [package]
 name = "crsf"
 edition = "2021"
-version = "2.0.1"
+version = "3.0.0"
 authors = ["Dicu Tudor <tudor@dicu.org>"]
 license = "MIT"
-description = "This crate provides a #[no_std] parser for the crossfire protocol."
+description = "This crate provides a `no-std` parser for the CRSF protocol."
+keywords = ["crsf", "elrs"]
+categories = [
+    "no-std::no-alloc",
+    "parsing",
+    "aerospace::drones",
+    "aerospace::unmanned-aerial-vehicles"
+]
 repository = "https://github.com/tact1m4n3/crsf-rs"
 documentation = "https://docs.rs/crsf"
 
 [dependencies]
-bitflags = "2.5.0"
 crc = "3.2"
-defmt = { version = "0.3.6", optional = true }
-num_enum = { version = "0.7.2", default-features = false }
-snafu = { version = "0.8.2", default-features = false }
+defmt = { version = "0.3.8", optional = true }
+num_enum = { version = "0.7.3", default-features = false }
+snafu = { version = "0.8.5", default-features = false }
 
 [dev-dependencies]
-serialport = "4.2.2"
+serialport = "4.6"
 
 [features]
 defmt = ["dep:defmt"]

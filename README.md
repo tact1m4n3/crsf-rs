@@ -1,5 +1,5 @@
 # crsf-rs
-This crate provides a #\[no_std\] parser for the crossfire protocol.
+This crate provides a `no-std` parser for the CRSF protocol.
 
 [CRSF protocol specification](https://github.com/crsf-wg/crsf/wiki/Message-Format)
 

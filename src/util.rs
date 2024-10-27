@@ -1,3 +1,15 @@
+/// Helper function to get a fixed-size array at the start of an immutable slice
+pub(crate) fn ref_array_start<const N: usize>(buf: &[u8]) -> Option<&[u8; N]> {
+    let len = buf.len();
+    (&buf[..N.min(len)]).try_into().ok()
+}
+
+/// Helper function to get a fixed-size array at the start of a mutable slice
+pub(crate) fn mut_array_start<const N: usize>(buf: &mut [u8]) -> Option<&mut [u8; N]> {
+    let len = buf.len();
+    (&mut buf[..N.min(len)]).try_into().ok()
+}
+
 pub(crate) struct BytesReader<'a> {
     buf: &'a [u8],
     idx: usize,
@@ -38,7 +50,7 @@ impl<'a> BytesReader<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::buffer::BytesReader;
+    use crate::util::BytesReader;
 
     #[test]
     fn test_bytes_reader() {

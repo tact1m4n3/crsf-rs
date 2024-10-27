@@ -1,8 +1,6 @@
 use std::time::Duration;
 use std::{env, io};
 
-use crsf::{Config, Packet, PacketReader};
-
 fn main() {
     let path = env::args().nth(1).expect("no serial port supplied");
     let mut port = serialport::new(path, 115_200)
@@ -11,21 +9,22 @@ fn main() {
         .expect("failed to open serial port");
 
     let mut buf = [0; 1024];
-    let mut reader = PacketReader::new(Config::default());
+    let mut parser = crsf::Parser::new(crsf::ParserConfig::default());
     loop {
         match port.read(buf.as_mut_slice()) {
             Ok(n @ 1..) => {
-                for result in reader.iter_packets(&buf[..n]) {
+                for result in parser.iter_packets(&buf[..n]) {
                     match result {
-                        Ok(Packet::LinkStatistics(link_stats)) => {
+                        Ok(crsf::Packet::LinkStatistics(link_stats)) => {
                             println!("{:?}", link_stats);
                         }
-                        Ok(Packet::RcChannelsPacked(rc_channels)) => {
+                        Ok(crsf::Packet::RcChannelsPacked(rc_channels)) => {
                             println!("{:?}", rc_channels);
                         }
-                        _ => {
-                            eprintln!("Unknown packet");
+                        Err(err) => {
+                            println!("err: {:?}", err);
                         }
+                        _ => {}
                     }
                 }
             }
