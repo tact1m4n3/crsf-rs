@@ -64,7 +64,7 @@ impl Parser {
     }
 
     /// Consumes a byte and returns a raw (not parsed) packet if one is available.
-    pub fn push_byte_raw<'a>(&'a mut self, byte: u8) -> Option<Result<RawPacket<'a>, ParseError>> {
+    pub fn push_byte_raw(&mut self, byte: u8) -> Option<Result<RawPacket, ParseError>> {
         match self.state {
             State::AwaitingSync => {
                 if self.config.sync.contains(&byte) {
@@ -152,9 +152,7 @@ impl Parser {
                     }
                 }
                 State::AwaitingLen => {
-                    let Some(byte) = reader.next() else {
-                        return None;
-                    };
+                    let byte = reader.next()?;
 
                     if (MIN_LEN_BYTE..=MAX_LEN_BYTE).contains(&byte) {
                         self.state = State::Reading {
@@ -229,7 +227,7 @@ impl Iterator for PacketIterator<'_, '_> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((result, remaining_data)) = self.parser.push_bytes(self.remaining_data) {
             self.remaining_data = remaining_data;
-            return Some(result);
+            Some(result)
         } else {
             None
         }
