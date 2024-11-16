@@ -5,11 +5,11 @@ use snafu::Snafu;
 #[non_exhaustive]
 pub struct ParserConfig {
     /// Sync byte to use for finding the start of a frame. Default is `0xC8`.
-    sync: &'static [u8],
+    pub sync: &'static [u8],
 }
 
-impl Default for ParserConfig {
-    fn default() -> Self {
+impl ParserConfig {
+    pub const fn default() -> Self {
         Self { sync: &[SYNC_BYTE] }
     }
 }
