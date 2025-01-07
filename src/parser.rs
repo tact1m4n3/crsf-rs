@@ -1,4 +1,4 @@
-use crate::{util::BytesReader, Packet, PacketType, RawPacket, CRC8, MAX_PACKET_LEN, SYNC_BYTE};
+use crate::{util::BytesReader, Packet, PacketType, RawPacket, CRC8, MAX_PACKET_LEN, SYNC_BYTE, SYNC_RC_BYTE};
 use snafu::Snafu;
 
 /// Struct for configuring a `Parser`.
@@ -10,7 +10,7 @@ pub struct ParserConfig {
 
 impl ParserConfig {
     pub const fn default() -> Self {
-        Self { sync: &[SYNC_BYTE] }
+        Self { sync: &[SYNC_BYTE, SYNC_RC_BYTE] }
     }
 }
 
