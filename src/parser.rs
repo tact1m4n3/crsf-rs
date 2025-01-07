@@ -10,7 +10,7 @@ pub struct ParserConfig {
 
 impl ParserConfig {
     pub const fn default() -> Self {
-        Self { sync: &[SYNC_BYTE, SYNC_RC_BYTE] }
+        Self { sync: &[SYNC_RC_BYTE, SYNC_BYTE] }
     }
 }
 
