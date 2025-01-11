@@ -39,6 +39,7 @@ pub use parser::*;
 mod util;
 
 pub const SYNC_BYTE: u8 = 0xC8;
+pub const SYNC_RC_BYTE: u8 = 0xEE;
 pub const MAX_PACKET_LEN: usize = 64;
 
 pub(crate) const CRC8: crc::Crc<u8> = crc::Crc::<u8>::new(&crc::CRC_8_DVB_S2);
