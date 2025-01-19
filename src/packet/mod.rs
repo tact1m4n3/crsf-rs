@@ -14,16 +14,6 @@ use crate::{ParseError, CRC8, SYNC_BYTE};
 use num_enum::TryFromPrimitive;
 use snafu::Snafu;
 
-/// Wrapper struct for the raw data of a packet with valid length and checksum.
-pub struct RawPacket<'a>(pub(crate) &'a [u8]);
-
-impl RawPacket<'_> {
-    /// Returns the inner data
-    pub fn data(&self) -> &[u8] {
-        self.0
-    }
-}
-
 /// Enum of implemented packets.
 #[non_exhaustive]
 #[derive(Debug, PartialEq)]
@@ -47,10 +37,8 @@ pub enum ExtendedPacket {
 }
 
 impl Packet {
-    /// Parses a `RawPacket`
-    pub fn parse(raw_packet: RawPacket<'_>) -> Result<Self, ParseError> {
-        let data = raw_packet.data();
-
+    /// Parses raw packet data with valid length and checksum
+    pub fn parse(data: &[u8]) -> Result<Self, ParseError> {
         let typ = if let Ok(typ) = PacketType::try_from_primitive(data[2]) {
             typ
         } else {
@@ -240,7 +228,7 @@ pub struct DumpError {
 mod tests {
     use crate::{
         DevicePing, ExtendedPacket, ExtendedPayloadDump, LinkStatistics, Packet, PacketAddress,
-        PayloadDump, RawPacket, RcChannelsPacked, MAX_PACKET_LEN, SYNC_BYTE,
+        PayloadDump, RcChannelsPacked, MAX_PACKET_LEN, SYNC_BYTE,
     };
 
     #[test]
@@ -257,7 +245,7 @@ mod tests {
 
         assert_eq!(&buf[..len], expected_data.as_slice());
 
-        let result = Packet::parse(RawPacket(&buf[..len]));
+        let result = Packet::parse(&buf[..len]);
         assert_eq!(result, Ok(Packet::RcChannelsPacked(orig)));
     }
 
@@ -285,7 +273,7 @@ mod tests {
 
         assert_eq!(&buf[..len], expected_data.as_slice());
 
-        let result = Packet::parse(RawPacket(&buf[..len]));
+        let result = Packet::parse(&buf[..len]);
         assert_eq!(result, Ok(Packet::LinkStatistics(orig)));
     }
 
@@ -308,7 +296,7 @@ mod tests {
 
         assert_eq!(&buf[..len], expected_data.as_slice());
 
-        let result = Packet::parse(RawPacket(&buf[..len]));
+        let result = Packet::parse(&buf[..len]);
         assert_eq!(
             result,
             Ok(Packet::Extended {

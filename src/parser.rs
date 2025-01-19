@@ -1,4 +1,4 @@
-use crate::{util::BytesReader, Packet, PacketType, RawPacket, CRC8, MAX_PACKET_LEN, SYNC_BYTE, SYNC_RC_BYTE};
+use crate::{util::BytesReader, Packet, PacketType, CRC8, MAX_PACKET_LEN, SYNC_BYTE, SYNC_RC_BYTE};
 use snafu::Snafu;
 
 /// Struct for configuring a `Parser`.
@@ -60,11 +60,11 @@ impl Parser {
     /// Consumes a byte and returns a parsed packet if one is available.
     pub fn push_byte(&mut self, byte: u8) -> Option<Result<Packet, ParseError>> {
         self.push_byte_raw(byte)
-            .map(|res| res.and_then(|raw_packet| Packet::parse(raw_packet)))
+            .map(|res| res.and_then(Packet::parse))
     }
 
     /// Consumes a byte and returns a raw (not parsed) packet if one is available.
-    pub fn push_byte_raw(&mut self, byte: u8) -> Option<Result<RawPacket, ParseError>> {
+    pub fn push_byte_raw(&mut self, byte: u8) -> Option<Result<&[u8], ParseError>> {
         match self.state {
             State::AwaitingSync => {
                 if self.config.sync.contains(&byte) {
@@ -95,7 +95,7 @@ impl Parser {
                     let actual_checksum = CRC8.checksum(&self.buf[2..len - 1]);
 
                     if actual_checksum == expected_checksum {
-                        return Some(Ok(RawPacket(&self.buf[..len])));
+                        return Some(Ok(&self.buf[..len]));
                     } else {
                         return Some(Err(ParseError::ChecksumMismatch {
                             expected: expected_checksum,
@@ -122,7 +122,7 @@ impl Parser {
     ) -> Option<(Result<Packet, ParseError>, &'b [u8])> {
         self.push_bytes_raw(data).map(|(res, remaining)| {
             (
-                res.and_then(|raw_packet| Packet::parse(raw_packet)),
+                res.and_then(Packet::parse),
                 remaining,
             )
         })
@@ -133,7 +133,7 @@ impl Parser {
     pub fn push_bytes_raw<'a, 'b>(
         &'a mut self,
         data: &'b [u8],
-    ) -> Option<(Result<RawPacket<'a>, ParseError>, &'b [u8])> {
+    ) -> Option<(Result<&'a [u8], ParseError>, &'b [u8])> {
         let mut reader = BytesReader::new(data);
 
         loop {
@@ -184,7 +184,7 @@ impl Parser {
                         let actual_checksum = CRC8.checksum(&self.buf[2..len - 1]);
 
                         if actual_checksum == expected_checksum {
-                            break Some((Ok(RawPacket(&self.buf[..len])), reader.remaining()));
+                            break Some((Ok(&self.buf[..len]), reader.remaining()));
                         } else {
                             return Some((
                                 Err(ParseError::ChecksumMismatch {
