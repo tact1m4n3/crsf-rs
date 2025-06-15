@@ -20,9 +20,6 @@ jobs:
 
     - uses: Swatinem/rust-cache@v2
 
-    - name: Install system dependencies
-      run: sudo apt-get install libudev-dev
-
     - run: cargo test --all-features
 
   lint:
