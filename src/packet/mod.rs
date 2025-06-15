@@ -1,6 +1,9 @@
 //! This module contains defines the behavior of a Payload, and provides implementations for
 //! various payloads used in the CRSF protocol.
 
+mod battery_sensor;
+pub use battery_sensor::BatterySensor;
+
 mod link_statistics;
 pub use link_statistics::LinkStatistics;
 
@@ -31,6 +34,7 @@ impl RawPacket<'_> {
 pub enum Packet {
     LinkStatistics(LinkStatistics),
     RcChannelsPacked(RcChannelsPacked),
+    BatterySensor(BatterySensor),
     Extended {
         dst: PacketAddress,
         src: PacketAddress,
@@ -65,6 +69,7 @@ impl Packet {
             PacketType::LinkStatistics => {
                 Ok(Packet::LinkStatistics(LinkStatistics::parse(payload)))
             }
+            PacketType::BatterySensor => Ok(Packet::BatterySensor(BatterySensor::parse(payload))),
             typ if typ.is_extended() => {
                 let dst = PacketAddress::try_from_primitive(payload[0])
                     .map_err(|_| ParseError::InvalidAddress { addr: payload[0] })?;
