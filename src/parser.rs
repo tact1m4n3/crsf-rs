@@ -1,5 +1,5 @@
 use crate::{
-    util::BytesReader, Packet, PacketType, RawPacket, CRC8, MAX_PACKET_LEN, SYNC_BYTE, SYNC_RC_BYTE,
+    CRC8, MAX_PACKET_LEN, Packet, PacketType, RawPacket, SYNC_BYTE, SYNC_RC_BYTE, util::BytesReader,
 };
 use snafu::Snafu;
 
@@ -238,11 +238,44 @@ impl Iterator for PacketIterator<'_, '_> {
     }
 }
 
+/// Parses a complete packet from a buffer, skipping the internal state machine.
+/// This assumes the buffer contains exactly one complete packet.
+pub fn parse_packet(config: &ParserConfig, data: &[u8]) -> Result<Packet, ParseError> {
+    if data.len() < 4 {
+        return Err(ParseError::InvalidLength {
+            len: data.len() as u8,
+        });
+    }
+
+    if !config.sync.contains(&data[0]) {
+        return Err(ParseError::InvalidSyncByte { byte: data[0] });
+    }
+
+    let len_byte = data[1];
+    if len_byte < MIN_LEN_BYTE || len_byte > MAX_LEN_BYTE || data.len() != (len_byte as usize + 2) {
+        return Err(ParseError::InvalidLength { len: len_byte });
+    }
+
+    let expected_checksum = data[data.len() - 1];
+    let actual_checksum = CRC8.checksum(&data[2..data.len() - 1]);
+
+    if actual_checksum != expected_checksum {
+        return Err(ParseError::ChecksumMismatch {
+            expected: expected_checksum,
+            actual: actual_checksum,
+        });
+    }
+
+    Packet::parse(RawPacket(data))
+}
+
 /// Enum of parsing errors.
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Snafu)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ParseError {
+    #[snafu(display("Invalid sync byte {byte:#04x}"))]
+    InvalidSyncByte { byte: u8 },
     #[snafu(display("Invalid length {len}, should be between {MIN_LEN_BYTE} and {MAX_LEN_BYTE}"))]
     InvalidLength { len: u8 },
     #[snafu(display("Crc checksum mismatch: expected {expected:#04x}, got {actual:#04x}"))]
@@ -418,6 +451,68 @@ mod tests {
                 src: PacketAddress::Handset,
                 packet: crate::ExtendedPacket::DevicePing(_)
             }))
+        ));
+    }
+
+    #[test]
+    fn test_parse_packet() {
+        use super::{CRC8, ParseError, parse_packet};
+        let config = ParserConfig::default();
+
+        // Test valid packet (RcChannelsPacked)
+        // Sync (0xC8), Len (24), Type (0x16), Payload (22 bytes of 0), CRC
+        // Total size = 1(sync) + 1(len) + 1(type) + 22(payload) + 1(crc) = 26 bytes
+        let mut valid_data = [0u8; 26];
+        valid_data[0] = SYNC_BYTE;
+        valid_data[1] = 24;
+        valid_data[2] = PacketType::RcChannelsPacked as u8;
+        // payload is already 0
+        let checksum = CRC8.checksum(&valid_data[2..=24]); // CRC of Type..=EndPayload
+        valid_data[25] = checksum;
+
+        assert!(matches!(
+            parse_packet(&config, &valid_data),
+            Ok(Packet::RcChannelsPacked(_))
+        ));
+
+        // Test Invalid Length (Data too short)
+        assert!(matches!(
+            parse_packet(&config, &[SYNC_BYTE, 2]),
+            Err(ParseError::InvalidLength { len: 2 })
+        ));
+
+        // Test Invalid Sync Byte
+        let mut invalid_sync = valid_data;
+        invalid_sync[0] = 0x00;
+        assert!(matches!(
+            parse_packet(&config, &invalid_sync),
+            Err(ParseError::InvalidSyncByte { byte: 0x00 })
+        ));
+
+        // Test Invalid Length Byte (Too small)
+        // Min len byte is 2.
+        let bad_len_data = [SYNC_BYTE, 1, 0x00, 0x00];
+        // parse_packet checks: len_byte < MIN_LEN_BYTE (2)
+        assert!(matches!(
+            parse_packet(&config, &bad_len_data),
+            Err(ParseError::InvalidLength { len: 1 })
+        ));
+
+        // Test Invalid Length Byte (Mismatch with actual data length)
+        // len_byte says 24 (26 total bytes), but we provide only 5 bytes
+        let short_data = [SYNC_BYTE, 24, 0x00, 0x00, 0x00];
+        assert!(matches!(
+            parse_packet(&config, &short_data),
+            Err(ParseError::InvalidLength { len: 24 })
+        ));
+
+        // Test Checksum Mismatch
+        let mut bad_crc = valid_data;
+        let last_idx = bad_crc.len() - 1;
+        bad_crc[last_idx] = !bad_crc[last_idx]; // Flip bits
+        assert!(matches!(
+            parse_packet(&config, &bad_crc),
+            Err(ParseError::ChecksumMismatch { .. })
         ));
     }
 }
