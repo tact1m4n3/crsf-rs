@@ -252,7 +252,7 @@ pub fn parse_packet(config: &ParserConfig, data: &[u8]) -> Result<Packet, ParseE
     }
 
     let len_byte = data[1];
-    if len_byte < MIN_LEN_BYTE || len_byte > MAX_LEN_BYTE || data.len() != (len_byte as usize + 2) {
+    if !(MIN_LEN_BYTE..=MAX_LEN_BYTE).contains(&len_byte) || data.len() != (len_byte as usize + 2) {
         return Err(ParseError::InvalidLength { len: len_byte });
     }
 
