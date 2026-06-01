@@ -20,11 +20,11 @@ pub struct LinkStatistics {
 const LEN: usize = 10;
 
 impl LinkStatistics {
-    /// Parses a `LinkStatistics` payload (assumes it to be valid).
-    pub(crate) fn parse(data: &[u8]) -> Self {
-        let data: &[u8; LEN] = crate::util::ref_array_start(data).expect("buffer length mismatch");
+    /// Parses a `LinkStatistics` payload.
+    pub(crate) fn parse(data: &[u8]) -> Option<Self> {
+        let data: &[u8; LEN] = crate::util::ref_array_start(data)?;
 
-        LinkStatistics {
+        Some(LinkStatistics {
             uplink_rssi_1: data[0],
             uplink_rssi_2: data[1],
             uplink_link_quality: data[2],
@@ -35,7 +35,7 @@ impl LinkStatistics {
             downlink_rssi: data[7],
             downlink_link_quality: data[8],
             downlink_snr: data[9] as i8,
-        }
+        })
     }
 }
 

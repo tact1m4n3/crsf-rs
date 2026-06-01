@@ -13,7 +13,8 @@ fn main() {
     loop {
         match port.read(buf.as_mut_slice()) {
             Ok(n @ 1..) => {
-                for result in parser.iter_packets(&buf[..n]) {
+                let mut iter = parser.iter_packets(&buf[..n]);
+                while let Some(result) = iter.next() {
                     match result {
                         Ok(crsf::Packet::LinkStatistics(link_stats)) => {
                             println!("{:?}", link_stats);

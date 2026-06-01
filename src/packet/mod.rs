@@ -13,16 +13,32 @@ pub use rc_channels_packed::RcChannelsPacked;
 mod device_ping;
 pub use device_ping::DevicePing;
 
-use crate::{ParseError, CRC8, SYNC_BYTE};
+mod gps;
+pub use gps::Gps;
+
+mod barometer;
+pub use barometer::Barometer;
+
+mod magnetometer;
+pub use magnetometer::Magnetometer;
+
+mod accel_gyro;
+pub use accel_gyro::AccelGyro;
+
+mod flight_mode;
+pub use flight_mode::FlightMode;
+
+use crate::{CRC8, MAX_PACKET_LEN, ParseError, SYNC_BYTE};
 use num_enum::TryFromPrimitive;
 use snafu::Snafu;
 
 /// Wrapper struct for the raw data of a packet with valid length and checksum.
+#[derive(Clone, Copy)]
 pub struct RawPacket<'a>(pub(crate) &'a [u8]);
 
-impl RawPacket<'_> {
+impl<'a> RawPacket<'a> {
     /// Returns the inner data
-    pub fn data(&self) -> &[u8] {
+    pub fn data(self) -> &'a [u8] {
         self.0
     }
 }
@@ -31,10 +47,15 @@ impl RawPacket<'_> {
 #[non_exhaustive]
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Packet {
+pub enum Packet<'a> {
     LinkStatistics(LinkStatistics),
     RcChannelsPacked(RcChannelsPacked),
     BatterySensor(BatterySensor),
+    Gps(Gps),
+    Barometer(Barometer),
+    Magnetometer(Magnetometer),
+    AccelGyro(AccelGyro),
+    FlightMode(FlightMode<'a>),
     Extended {
         dst: PacketAddress,
         src: PacketAddress,
@@ -50,9 +71,9 @@ pub enum ExtendedPacket {
     DevicePing(DevicePing),
 }
 
-impl Packet {
+impl<'a> Packet<'a> {
     /// Parses a `RawPacket`
-    pub fn parse(raw_packet: RawPacket<'_>) -> Result<Self, ParseError> {
+    pub fn parse(raw_packet: RawPacket<'a>) -> Result<Self, ParseError> {
         let data = raw_packet.data();
 
         let typ = if let Ok(typ) = PacketType::try_from_primitive(data[2]) {
@@ -63,13 +84,30 @@ impl Packet {
 
         let payload = &data[3..data.len() - 1];
         match typ {
-            PacketType::RcChannelsPacked => {
-                Ok(Packet::RcChannelsPacked(RcChannelsPacked::parse(payload)))
-            }
-            PacketType::LinkStatistics => {
-                Ok(Packet::LinkStatistics(LinkStatistics::parse(payload)))
-            }
-            PacketType::BatterySensor => Ok(Packet::BatterySensor(BatterySensor::parse(payload))),
+            PacketType::RcChannelsPacked => Ok(Packet::RcChannelsPacked(
+                RcChannelsPacked::parse(payload).ok_or(ParseError::InvalidPayload)?,
+            )),
+            PacketType::LinkStatistics => Ok(Packet::LinkStatistics(
+                LinkStatistics::parse(payload).ok_or(ParseError::InvalidPayload)?,
+            )),
+            PacketType::BatterySensor => Ok(Packet::BatterySensor(
+                BatterySensor::parse(payload).ok_or(ParseError::InvalidPayload)?,
+            )),
+            PacketType::Gps => Ok(Packet::Gps(
+                Gps::parse(payload).ok_or(ParseError::InvalidPayload)?,
+            )),
+            PacketType::Barometer => Ok(Packet::Barometer(
+                Barometer::parse(payload).ok_or(ParseError::InvalidPayload)?,
+            )),
+            PacketType::Magnetometer => Ok(Packet::Magnetometer(
+                Magnetometer::parse(payload).ok_or(ParseError::InvalidPayload)?,
+            )),
+            PacketType::AccelGyro => Ok(Packet::AccelGyro(
+                AccelGyro::parse(payload).ok_or(ParseError::InvalidPayload)?,
+            )),
+            PacketType::FlightMode => Ok(Packet::FlightMode(
+                FlightMode::parse(payload).ok_or(ParseError::InvalidPayload)?,
+            )),
             typ if typ.is_extended() => {
                 let dst = PacketAddress::try_from_primitive(payload[0])
                     .map_err(|_| ParseError::InvalidAddress { addr: payload[0] })?;
@@ -130,6 +168,9 @@ pub enum PacketType {
     LinkTxId = 0x1D,
     Attitude = 0x1E,
     FlightMode = 0x21,
+    Barometer = 0x11,
+    Magnetometer = 0x12,
+    AccelGyro = 0x13,
     DevicePing = 0x28,
     DeviceInfo = 0x29,
     ParameterSettingsEntry = 0x2B,
@@ -178,8 +219,11 @@ pub trait PayloadDump: Payload {
     fn dump_with_sync(&self, buf: &mut [u8], sync_byte: u8) -> Result<usize, DumpError> {
         let payload_len = self.len();
         let total_len = payload_len + 4;
+        if total_len > MAX_PACKET_LEN {
+            return Err(DumpError::InvalidPayload);
+        }
         if buf.len() < total_len {
-            return Err(DumpError {
+            return Err(DumpError::BufferTooSmall {
                 expected_buf_len: total_len,
             });
         }
@@ -216,8 +260,11 @@ pub trait ExtendedPayloadDump: Payload {
     ) -> Result<usize, DumpError> {
         let payload_len = self.len();
         let total_len = payload_len + 6;
+        if total_len > MAX_PACKET_LEN {
+            return Err(DumpError::InvalidPayload);
+        }
         if buf.len() < total_len {
-            return Err(DumpError {
+            return Err(DumpError::BufferTooSmall {
                 expected_buf_len: total_len,
             });
         }
@@ -236,16 +283,20 @@ pub trait ExtendedPayloadDump: Payload {
 
 /// Buffer too small error for `Packet` dump.
 #[derive(Debug, PartialEq, Snafu)]
-#[snafu(display("Dump buffer length too small: expected at least {expected_buf_len} bytes"))]
-pub struct DumpError {
-    pub expected_buf_len: usize,
+pub enum DumpError {
+    InvalidPayload,
+    #[snafu(display("Dump buffer length too small: expected at least {expected_buf_len} bytes"))]
+    BufferTooSmall {
+        expected_buf_len: usize,
+    },
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        DevicePing, ExtendedPacket, ExtendedPayloadDump, LinkStatistics, Packet, PacketAddress,
-        PayloadDump, RawPacket, RcChannelsPacked, MAX_PACKET_LEN, SYNC_BYTE,
+        AccelGyro, Barometer, DevicePing, ExtendedPacket, ExtendedPayloadDump, Gps, LinkStatistics,
+        MAX_PACKET_LEN, Magnetometer, Packet, PacketAddress, PayloadDump, RawPacket,
+        RcChannelsPacked, SYNC_BYTE,
     };
 
     #[test]
@@ -322,5 +373,72 @@ mod tests {
                 packet: ExtendedPacket::DevicePing(orig)
             })
         );
+    }
+
+    #[test]
+    fn test_gps_dump_and_parse() {
+        let orig = Gps {
+            latitude: 471234567,
+            longitude: 88876543,
+            groundspeed: 5050,
+            heading: 12345,
+            altitude: 1500,
+            satellites: 12,
+        };
+
+        let mut buf = [0u8; MAX_PACKET_LEN];
+        let len = orig.dump(&mut buf).unwrap();
+
+        let result = Packet::parse(RawPacket(&buf[..len]));
+        assert_eq!(result, Ok(Packet::Gps(orig)));
+    }
+
+    #[test]
+    fn test_barometer_dump_and_parse() {
+        let orig = Barometer {
+            pressure_pa: 101325,
+            baro_temp: 2500,
+        };
+
+        let mut buf = [0u8; MAX_PACKET_LEN];
+        let len = orig.dump(&mut buf).unwrap();
+
+        let result = Packet::parse(RawPacket(&buf[..len]));
+        assert_eq!(result, Ok(Packet::Barometer(orig)));
+    }
+
+    #[test]
+    fn test_magnetometer_dump_and_parse() {
+        let orig = Magnetometer {
+            field_x: 1000,
+            field_y: 2000,
+            field_z: 3000,
+        };
+
+        let mut buf = [0u8; MAX_PACKET_LEN];
+        let len = orig.dump(&mut buf).unwrap();
+
+        let result = Packet::parse(RawPacket(&buf[..len]));
+        assert_eq!(result, Ok(Packet::Magnetometer(orig)));
+    }
+
+    #[test]
+    fn test_accel_gyro_dump_and_parse() {
+        let orig = AccelGyro {
+            sample_time: 123456,
+            gyro_x: 100,
+            gyro_y: 200,
+            gyro_z: 300,
+            acc_x: 1000,
+            acc_y: 2000,
+            acc_z: 3000,
+            gyro_temp: 2500,
+        };
+
+        let mut buf = [0u8; MAX_PACKET_LEN];
+        let len = orig.dump(&mut buf).unwrap();
+
+        let result = Packet::parse(RawPacket(&buf[..len]));
+        assert_eq!(result, Ok(Packet::AccelGyro(orig)));
     }
 }

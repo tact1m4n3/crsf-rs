@@ -23,11 +23,11 @@ pub struct BatterySensor {
 const LEN: usize = size_of::<BatterySensor>();
 
 impl BatterySensor {
-    /// Parses a `BatterySensor` payload (assumes it to be valid).
-    pub(crate) fn parse(data: &[u8]) -> Self {
-        let data: &[u8; LEN] = crate::util::ref_array_start(data).expect("buffer length mismatch");
+    /// Parses a `BatterySensor` payload.
+    pub(crate) fn parse(data: &[u8]) -> Option<Self> {
+        let data: &[u8; LEN] = crate::util::ref_array_start(data)?;
 
-        BatterySensor::from_bits(u64::from_be_bytes(*data))
+        Some(BatterySensor::from_bits(u64::from_be_bytes(*data)))
     }
 }
 

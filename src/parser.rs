@@ -62,7 +62,7 @@ impl Parser {
     }
 
     /// Consumes a byte and returns a parsed packet if one is available.
-    pub fn push_byte(&mut self, byte: u8) -> Option<Result<Packet, ParseError>> {
+    pub fn push_byte<'a>(&'a mut self, byte: u8) -> Option<Result<Packet<'a>, ParseError>> {
         self.push_byte_raw(byte)
             .map(|res| res.and_then(|raw_packet| Packet::parse(raw_packet)))
     }
@@ -120,10 +120,10 @@ impl Parser {
 
     /// Consumes a slice of bytes and returns a parsed packet if one is available. It's optimized
     /// for reading multiple bytes at a time.
-    pub fn push_bytes<'b>(
-        &mut self,
+    pub fn push_bytes<'a, 'b>(
+        &'a mut self,
         data: &'b [u8],
-    ) -> Option<(Result<Packet, ParseError>, &'b [u8])> {
+    ) -> Option<(Result<Packet<'a>, ParseError>, &'b [u8])> {
         self.push_bytes_raw(data).map(|(res, remaining)| {
             (
                 res.and_then(|raw_packet| Packet::parse(raw_packet)),
@@ -225,10 +225,8 @@ pub struct PacketIterator<'a, 'b> {
     remaining_data: &'b [u8],
 }
 
-impl Iterator for PacketIterator<'_, '_> {
-    type Item = Result<Packet, ParseError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl PacketIterator<'_, '_> {
+    pub fn next<'a>(&'a mut self) -> Option<Result<Packet<'a>, ParseError>> {
         if let Some((result, remaining_data)) = self.parser.push_bytes(self.remaining_data) {
             self.remaining_data = remaining_data;
             Some(result)
@@ -240,7 +238,7 @@ impl Iterator for PacketIterator<'_, '_> {
 
 /// Parses a complete packet from a buffer, skipping the internal state machine.
 /// This assumes the buffer contains exactly one complete packet.
-pub fn parse_packet(config: &ParserConfig, data: &[u8]) -> Result<Packet, ParseError> {
+pub fn parse_packet<'a>(config: &ParserConfig, data: &'a [u8]) -> Result<Packet<'a>, ParseError> {
     if data.len() < 4 {
         return Err(ParseError::InvalidLength {
             len: data.len() as u8,
@@ -282,6 +280,8 @@ pub enum ParseError {
     ChecksumMismatch { expected: u8, actual: u8 },
     #[snafu(display("Invalid type {typ:#04x}, see PacketType enum"))]
     InvalidType { typ: u8 },
+    #[snafu(display("Invalid payload"))]
+    InvalidPayload,
     #[snafu(display("Unimplemented type {typ:?}, should be implemented ASAP"))]
     UnimplementedType { typ: PacketType },
     #[snafu(display("Invalid address {addr:#04x}, see PacketAddress enum"))]

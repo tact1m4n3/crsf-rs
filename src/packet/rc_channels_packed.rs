@@ -20,8 +20,8 @@ impl RcChannelsPacked {
     pub const CHANNEL_VALUE_MAX: u16 = 1811;
 
     /// Parses a `RcChannelsPacked` payload (assumes it to be valid).
-    pub(crate) fn parse(data: &[u8]) -> Self {
-        let data: &[u8; LEN] = crate::util::ref_array_start(data).expect("buffer length mismatch");
+    pub(crate) fn parse(data: &[u8]) -> Option<Self> {
+        let data: &[u8; LEN] = crate::util::ref_array_start(data)?;
 
         // Convert u8 to u16 to make room for bit shifting
         let data: [u16; LEN] = core::array::from_fn(|i| data[i] as u16);
@@ -46,7 +46,7 @@ impl RcChannelsPacked {
         ch[14] &= data[19] >> 2 | data[20] << 6;
         ch[15] &= data[20] >> 5 | data[21] << 3;
 
-        Self(ch)
+        Some(Self(ch))
     }
 }
 
